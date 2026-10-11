@@ -9,6 +9,10 @@
   `payments` points at the session PaymentIntent, sets `session.invoice`, and
   emits `invoice.created` / `invoice.finalized` / `invoice.payment_succeeded` /
   `invoice.paid` alongside the checkout and PaymentIntent events.
+- Payment-mode Checkout Sessions accept `line_items[n][tax_rates][]` when every
+  line item uses the same tax rates; the rates tax the session total, the
+  PaymentIntent amount and the created Invoice. Mixed per-line rates,
+  subscription mode, and `automatic_tax[enabled]` together are rejected.
 - `DELETE /v1/test_helpers/test_clocks/{id}` removes a test clock and detaches
   it from the customers and subscriptions that referenced it (Stripe deletes
   attached objects; Billtap keeps them detached so fixture packs can re-seed

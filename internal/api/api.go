@@ -1645,6 +1645,13 @@ func (h *Handler) handleCheckoutSessions(w http.ResponseWriter, r *http.Request)
 			writeResult(w, nil, err)
 			return
 		}
+		// Payment mode has no subscription_data; uniform line tax_rates become the session rates.
+		if lineTaxRateIDs, _ := p.checkoutLineTaxRateIDs(mode); len(lineTaxRateIDs) > 0 {
+			if defaultTaxRates, err = h.appliedTaxRatesFromIDs(lineTaxRateIDs); err != nil {
+				writeResult(w, nil, err)
+				return
+			}
+		}
 		session, err := h.billing.CreateCheckoutSession(r.Context(), billing.CheckoutSession{
 			CustomerID:               p.first("customer", "customer_id"),
 			Mode:                     mode,

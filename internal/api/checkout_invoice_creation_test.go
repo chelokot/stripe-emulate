@@ -138,3 +138,67 @@ func TestCheckoutInvoiceCreationValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckoutPaymentModeLineTaxRates(t *testing.T) {
+	handler := newTestHandler(t)
+	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"line-tax@example.test"}})
+	product := postForm[map[string]any](t, handler, "/v1/products", url.Values{"name": {"Extra export"}})
+	price := postForm[map[string]any](t, handler, "/v1/prices", url.Values{
+		"product":     {fmt.Sprint(product["id"])},
+		"currency":    {"usd"},
+		"unit_amount": {"4900"},
+	})
+	vat := postForm[map[string]any](t, handler, "/v1/tax_rates", url.Values{
+		"display_name": {"VAT"},
+		"percentage":   {"10"},
+		"inclusive":    {"false"},
+	})
+
+	session := postForm[map[string]any](t, handler, "/v1/checkout/sessions", url.Values{
+		"customer":                    {customer.ID},
+		"mode":                        {"payment"},
+		"line_items[0][price]":        {fmt.Sprint(price["id"])},
+		"line_items[0][quantity]":     {"2"},
+		"line_items[0][tax_rates][0]": {fmt.Sprint(vat["id"])},
+		"invoice_creation[enabled]":   {"true"},
+		"success_url":                 {"http://app.test/success"},
+	})
+	if total, _ := session["amount_total"].(float64); int64(total) != 10780 {
+		t.Fatalf("session amount_total=%v, want 10780 (9800 + 10%% VAT)", session["amount_total"])
+	}
+
+	completion := postJSON[map[string]json.RawMessage](t, handler, "/api/checkout/sessions/"+fmt.Sprint(session["id"])+"/complete", map[string]string{"outcome": "payment_succeeded"})
+	var completed billing.CheckoutSession
+	if err := json.Unmarshal(completion["session"], &completed); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+	inv := getJSON[map[string]any](t, handler, "/v1/invoices/"+completed.InvoiceID)
+	for field, want := range map[string]int64{"subtotal": 9800, "tax": 980, "total": 10780, "amount_paid": 10780} {
+		if got, _ := inv[field].(float64); int64(got) != want {
+			t.Fatalf("invoice %s=%v, want %d", field, inv[field], want)
+		}
+	}
+	pi := getJSON[map[string]any](t, handler, "/v1/payment_intents/"+completed.PaymentIntentID)
+	if amount, _ := pi["amount"].(float64); int64(amount) != 10780 {
+		t.Fatalf("pi amount=%v, want 10780", pi["amount"])
+	}
+
+	other := postForm[map[string]any](t, handler, "/v1/tax_rates", url.Values{"display_name": {"Other"}, "percentage": {"5"}, "inclusive": {"false"}})
+	for name, values := range map[string]url.Values{
+		"mixed per-line rates": {
+			"line_items[0][price]": {fmt.Sprint(price["id"])}, "line_items[0][tax_rates][0]": {fmt.Sprint(vat["id"])},
+			"line_items[1][price]": {fmt.Sprint(price["id"])}, "line_items[1][tax_rates][0]": {fmt.Sprint(other["id"])},
+		},
+		"subscription mode":  {"mode": {"subscription"}, "line_items[0][price]": {fmt.Sprint(price["id"])}, "line_items[0][tax_rates][0]": {fmt.Sprint(vat["id"])}},
+		"with automatic_tax": {"automatic_tax[enabled]": {"true"}, "line_items[0][price]": {fmt.Sprint(price["id"])}, "line_items[0][tax_rates][0]": {fmt.Sprint(vat["id"])}},
+		"unknown rate":       {"line_items[0][price]": {fmt.Sprint(price["id"])}, "line_items[0][tax_rates][0]": {"txr_missing"}},
+	} {
+		values.Set("customer", customer.ID)
+		if values.Get("mode") == "" {
+			values.Set("mode", "payment")
+		}
+		if status, body := postFormStatus(t, handler, "/v1/checkout/sessions", values); status < 400 || !strings.Contains(body, "tax") {
+			t.Fatalf("%s: status=%d body=%s, want tax rejection", name, status, body)
+		}
+	}
+}
