@@ -3707,7 +3707,15 @@ func (h *Handler) handleInvoiceItems(w http.ResponseWriter, r *http.Request) {
 			CustomerID: r.URL.Query().Get("customer"),
 			InvoiceID:  r.URL.Query().Get("invoice"),
 		})
-		writeResult(w, stripeListFromRequest(r, stripeInvoiceItemMaps(items)), err)
+		// Stripe lists invoice items (one-offs, prorations), not the regular
+		// subscription lines Billtap stores in the same table.
+		listed := items[:0]
+		for _, item := range items {
+			if item.SubscriptionItemID == "" || item.Proration {
+				listed = append(listed, item)
+			}
+		}
+		writeResult(w, stripeListFromRequest(r, stripeInvoiceItemMaps(listed)), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}

@@ -112,3 +112,15 @@ func TestSubscriptionInvoiceLinesCarryPeriodParentAndDiscount(t *testing.T) {
 		t.Fatalf("upgrade charge line=%#v, want 1250 discount and period ending %d", upgrade[1], created.CurrentPeriodEnd)
 	}
 }
+
+func TestInvoiceItemsListSkipsRegularSubscriptionLines(t *testing.T) {
+	handler := newTestHandler(t)
+	customer, lite, _, _ := setupProrationPlans(t, handler)
+	postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{"customer": {customer.ID}, "items[0][price]": {lite.ID}})
+	list := getJSON[struct {
+		Data []map[string]any `json:"data"`
+	}](t, handler, "/v1/invoiceitems?customer="+customer.ID)
+	if len(list.Data) != 0 {
+		t.Fatalf("invoiceitems=%#v, want regular subscription lines excluded", list.Data)
+	}
+}

@@ -1092,7 +1092,7 @@ func (s *SQLiteStore) ListInvoiceItemsFiltered(ctx context.Context, filter billi
 		args = append(args, filter.InvoiceID)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT `+invoiceItemColumns+`
-		FROM invoice_items WHERE `+strings.Join(clauses, " AND ")+` ORDER BY created_at ASC, id ASC`, args...)
+		FROM invoice_items WHERE `+strings.Join(clauses, " AND ")+` ORDER BY created_at ASC, rowid ASC`, args...)
 	if err != nil {
 		return nil, err
 	}
