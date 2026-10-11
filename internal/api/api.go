@@ -2946,7 +2946,7 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 	description := "Upcoming invoice preview"
 	var prorationSkippedReason any
 	if subscription.ID != "" {
-		oldTotal, oldCurrency, _, err := h.lineItemTotal(ctx, subscription.Items)
+		oldTotal, oldCurrency, oldPrices, err := h.lineItemTotal(ctx, subscription.Items)
 		if err != nil {
 			return nil, err
 		}
@@ -2961,10 +2961,12 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		oldDiscountedTotal, _ := billing.ApplyDiscountsWithEligibleBase(oldTotal, eligibleOld, currency, discounts)
 		amount = 0
 		subtotal = 0
+		var remainingSeconds, periodSeconds int64
+		ok := false
 		totalDiscountAmount = 0
 		if behavior == "none" {
 			prorationSkippedReason = "behavior_none"
-		} else if remainingSeconds, periodSeconds, ok := billing.ProrationFactor(subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd, createdAt); ok {
+		} else if remainingSeconds, periodSeconds, ok = billing.ProrationFactor(subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd, createdAt); ok {
 			subtotal = billing.ProrateDelta(newTotal-oldTotal, remainingSeconds, periodSeconds)
 			amount = billing.ProrateDelta(discountedTotal-oldDiscountedTotal, remainingSeconds, periodSeconds)
 			totalDiscountAmount = subtotal - amount
@@ -2980,39 +2982,20 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		description = "Subscription update preview"
 		if amount != 0 {
 			prorationSkippedReason = nil
-			priceID := ""
-			quantity := int64(1)
-			var pricePayload any
-			if len(items) > 0 {
-				priceID = items[0].PriceID
-				quantity = items[0].Quantity
-				pricePayload = prices[priceID]
-			}
-			lines = append(lines, map[string]any{
-				"id":               "il_preview_" + sanitizeID(subscription.ID),
-				"object":           "line_item",
-				"amount":           amount,
-				"currency":         currency,
-				"description":      "Proration for subscription update",
-				"discount_amounts": discountAmounts(discounts, totalDiscountAmount),
-				"discountable":     false,
-				"period": map[string]any{
-					"start": createdAt.Unix(),
-					"end":   subscription.CurrentPeriodEnd.Unix(),
-				},
-				"proration":    true,
-				"price":        pricePayload,
-				"quantity":     quantity,
-				"subscription": subscription.ID,
-				"type":         "invoiceitem",
-				"parent": map[string]any{
-					"type": "subscription_item_details",
-					"subscription_item_details": map[string]any{
-						"price":        priceID,
-						"proration":    true,
-						"subscription": subscription.ID,
-					},
-				},
+			lines = prorationPreviewLines(prorationPreviewInput{
+				subscription: subscription,
+				oldPrices:    oldPrices,
+				newPrices:    prices,
+				oldAmounts:   oldLineAmounts,
+				newItems:     items,
+				newAmounts:   newLineAmounts,
+				remaining:    remainingSeconds,
+				period:       periodSeconds,
+				subtotal:     subtotal,
+				discounts:    discountAmounts(discounts, totalDiscountAmount),
+				currency:     currency,
+				start:        createdAt.Unix(),
+				end:          subscription.CurrentPeriodEnd.Unix(),
 			})
 		}
 	}
@@ -3280,9 +3263,10 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 				"parent": map[string]any{
 					"type": "subscription_item_details",
 					"subscription_item_details": map[string]any{
-						"price":        item.PriceID,
-						"proration":    false,
-						"subscription": subscription.ID,
+						"price":             item.PriceID,
+						"proration":         false,
+						"subscription":      subscription.ID,
+						"subscription_item": billing.ResolvedSubscriptionItemID(subscription.ID, item, idx),
 					},
 				},
 			})

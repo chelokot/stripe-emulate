@@ -176,8 +176,9 @@ func TestUpcomingItemOverrideKeepsProrationPath(t *testing.T) {
 	if preview.Subtotal != 5000 || taxVal(preview) != 500 || preview.Total != 5500 {
 		t.Fatalf("proration preview = %#v, want 5000/500/5500", preview)
 	}
-	if len(preview.Lines.Data) != 1 || !preview.Lines.Data[0].Proration {
-		t.Fatalf("lines = %#v, want one proration line", preview.Lines.Data)
+	// Stripe shape: unused time on the old price, remaining time on the new one.
+	if len(preview.Lines.Data) != 2 || !preview.Lines.Data[0].Proration || preview.Lines.Data[0].Amount+preview.Lines.Data[1].Amount != 5000 {
+		t.Fatalf("lines = %#v, want two proration lines netting 5000", preview.Lines.Data)
 	}
 	assertInvoiceInvariant(t, preview)
 }
