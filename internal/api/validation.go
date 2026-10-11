@@ -195,6 +195,18 @@ func unknownParam(param string) *validationError {
 	}
 }
 
+// unknownParams reports sorted keys: param stays the first one (as Stripe), the
+// message names every unknown key so a stub user sees the whole gap at once.
+func unknownParams(keys []string) *validationError {
+	sort.Strings(keys)
+	if len(keys) == 1 {
+		return unknownParam(keys[0])
+	}
+	err := unknownParam(keys[0])
+	err.Message = fmt.Sprintf("Received unknown parameters: %s.", strings.Join(keys, ", "))
+	return err
+}
+
 func invalidParam(param string, reason string) *validationError {
 	return &validationError{
 		Param:   param,
@@ -231,6 +243,7 @@ func (p params) validate(spec paramSpec) error {
 		allowed[key] = struct{}{}
 	}
 
+	var unknown []string
 	for key := range p.values {
 		if _, ok := allowed[key]; ok {
 			continue
@@ -249,8 +262,11 @@ func (p params) validate(spec paramSpec) error {
 			}
 		}
 		if !matched {
-			return unknownParam(key)
+			unknown = append(unknown, key)
 		}
+	}
+	if len(unknown) > 0 {
+		return unknownParams(unknown)
 	}
 
 	for _, key := range spec.Required {

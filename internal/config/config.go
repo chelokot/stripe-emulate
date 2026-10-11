@@ -24,6 +24,7 @@ const (
 	envRetentionDays          = "BILLTAP_RETENTION_DAYS"
 	envWebhookSignatureHeader = "BILLTAP_WEBHOOK_SIGNATURE_HEADER"
 	envWebhookAPIVersion      = "BILLTAP_WEBHOOK_API_VERSION"
+	envRequestLog             = "BILLTAP_REQUEST_LOG"
 
 	RawPayloadStore        = "store"
 	RawPayloadMetadataOnly = "metadata_only"
@@ -46,6 +47,8 @@ type Config struct {
 	RetentionDays          int    `json:"retention_days"`
 	WebhookSignatureHeader string `json:"webhook_signature_header"`
 	WebhookAPIVersion      string `json:"webhook_api_version"`
+	// RequestLogDisabled turns off the per-request log line (on by default).
+	RequestLogDisabled bool `json:"request_log_disabled"`
 }
 
 func Default() Config {
@@ -125,6 +128,9 @@ func LoadWithLookup(path string, lookup LookupFunc) (Config, error) {
 	}
 	if value, ok := lookup(envWebhookAPIVersion); ok {
 		cfg.WebhookAPIVersion = value
+	}
+	if value, ok := lookup(envRequestLog); ok {
+		cfg.RequestLogDisabled = !parseBool(value)
 	}
 	if cfg.RelayMode {
 		cfg.RawPayloadStorage = RawPayloadMetadataOnly
@@ -223,6 +229,9 @@ func merge(base Config, override Config) Config {
 	}
 	if override.WebhookAPIVersion != "" {
 		base.WebhookAPIVersion = override.WebhookAPIVersion
+	}
+	if override.RequestLogDisabled {
+		base.RequestLogDisabled = true
 	}
 	return base
 }

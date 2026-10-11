@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- One stderr log line per Stripe API request (method, path, run, status,
+  request id; 4xx adds error code/param/message and the sorted parameter names,
+  never values). Disable with `BILLTAP_REQUEST_LOG=off`.
+- Unknown-parameter errors are deterministic: keys are checked in sorted order,
+  `param` is the first unknown key, and the message lists every unknown key
+  (`Received unknown parameters: a, b.`) instead of one at random.
 - `POST /v1/checkout/sessions` accepts `invoice_creation[enabled]` and
   `invoice_creation[invoice_data][description|footer|metadata][...]` in payment
   mode. A paid completion creates a `paid` manual Invoice (lines from the

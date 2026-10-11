@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -34,12 +35,15 @@ type Options struct {
 	// LocalEvidence persists coupons, promotion codes, schedules, disputes, tax
 	// rates, tax IDs and cash balances. Nil keeps them in memory only.
 	LocalEvidence LocalEvidenceRepository
+	// RequestLog gets one line per Stripe API request. Nil disables it.
+	RequestLog *slog.Logger
 }
 
 type Handler struct {
 	billing     *billing.Service
 	webhooks    *webhooks.Service
 	diagnostics *diagnostics.Service
+	requestLog  *slog.Logger
 	publicBase  string
 	mux         *http.ServeMux
 	idem        *idempotencyStore
@@ -63,6 +67,7 @@ func New(opts Options) http.Handler {
 		billing:     opts.Billing,
 		webhooks:    opts.Webhooks,
 		diagnostics: opts.Diagnostics,
+		requestLog:  opts.RequestLog,
 		publicBase:  strings.TrimRight(opts.PublicBaseURL, "/"),
 		mux:         http.NewServeMux(),
 		idem:        newIdempotencyStore(),
@@ -76,7 +81,7 @@ func New(opts Options) http.Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.diagnostics != nil && isStripeAPIPath(r.URL.Path) {
+	if (h.diagnostics != nil || h.requestLog != nil) && isStripeAPIPath(r.URL.Path) {
 		h.serveWithRequestTrace(w, r)
 		return
 	}

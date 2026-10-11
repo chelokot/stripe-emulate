@@ -107,3 +107,17 @@ func hasNestedEnum(operation OperationValidation, name string, childName string,
 	}
 	return false
 }
+
+func TestValidateValuesReportsUnknownKeysSorted(t *testing.T) {
+	op := OperationValidation{Params: []ParameterValidation{
+		{Name: "name", Location: "form", Type: "string"},
+		{Name: "metadata", Location: "form", Type: "object", AdditionalProperties: true},
+	}}
+	values := map[string][]string{"name": {"x"}, "zeta": {"1"}, "alpha": {"1"}, "metadata[k]": {"v"}}
+	for i := 0; i < 20; i++ {
+		err := validateValues(op, values)
+		if err == nil || err.Code != ValidationCodeParamUnknown || err.Param != "alpha" || err.Message != "Received unknown parameters: alpha, zeta." {
+			t.Fatalf("err=%#v, want sorted unknown alpha, zeta", err)
+		}
+	}
+}
