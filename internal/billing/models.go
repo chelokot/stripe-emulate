@@ -453,6 +453,8 @@ type PortalSeatChange struct {
 
 type PortalCancel struct {
 	Mode string `json:"mode"`
+	// Metadata is merged onto the subscription (e.g. cancellation_details_*).
+	Metadata map[string]string `json:"-"`
 }
 
 type PaymentMethodSimulation struct {

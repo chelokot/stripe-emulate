@@ -2586,6 +2586,9 @@ func (s *Service) CancelPortalSubscription(ctx context.Context, subscriptionID s
 	if sub.Metadata["status_before_cancel"] == "" && sub.Status != "canceled" {
 		sub.Metadata["status_before_cancel"] = sub.Status
 	}
+	for key, value := range cancel.Metadata {
+		sub.Metadata[key] = value
+	}
 	sub.Metadata["portal_last_action"] = "cancel"
 	sub.Metadata["portal_cancel_mode"] = mode
 	sub.Metadata["portal_updated_at"] = now.Format(time.RFC3339Nano)

@@ -2463,7 +2463,18 @@ func (h *Handler) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 		writeResult(w, h.stripeSubscription(r, subscription), err)
 	case http.MethodDelete:
-		subscription, err := h.billing.CancelPortalSubscription(r.Context(), id, billing.PortalCancel{Mode: "immediate"})
+		p, err := parseParams(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		cancel := billing.PortalCancel{Mode: "immediate", Metadata: map[string]string{}}
+		for param, key := range map[string]string{"cancellation_details[comment]": "cancellation_details_comment", "cancellation_details[feedback]": "cancellation_details_feedback"} {
+			if value := p.string(param); value != "" {
+				cancel.Metadata[key] = value
+			}
+		}
+		subscription, err := h.billing.CancelPortalSubscription(r.Context(), id, cancel)
 		if err == nil {
 			h.emitSubscriptionWebhook(r, "customer.subscription.deleted", subscription, webhooks.SourceAPI)
 		}
