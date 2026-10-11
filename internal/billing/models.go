@@ -204,8 +204,14 @@ type InvoiceItem struct {
 	Quantity       int64             `json:"quantity,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	// tax_rates_snapshot avoids collision with Stripe's tax_rates array of TaxRate objects.
-	TaxRates  []AppliedTaxRate `json:"tax_rates_snapshot,omitempty"`
-	CreatedAt time.Time        `json:"created_at"`
+	TaxRates []AppliedTaxRate `json:"tax_rates_snapshot,omitempty"`
+	// Line details for subscription-generated lines; zero periods mean
+	// "use the item's created time" (one-off invoice items).
+	SubscriptionItemID string    `json:"subscription_item,omitempty"`
+	Proration          bool      `json:"proration,omitempty"`
+	PeriodStart        time.Time `json:"period_start,omitempty"`
+	PeriodEnd          time.Time `json:"period_end,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type InvoicePaymentOptions struct {

@@ -19,24 +19,25 @@ type prorationPreviewInput struct {
 	start, end           int64
 }
 
-// prorationPreviewLines builds Stripe-style per-item proration lines: an
-// "Unused time" credit for each removed or changed item and a "Remaining time"
-// charge for each added or changed item; unchanged items get no line. Each line
-// names its subscription_item so clients can split credits per item. Lines are
-// gross; the last one absorbs per-line rounding so they sum to the subtotal.
+// prorationPreviewLines renders billing.ProrationLines (the same split a
+// confirmed update stores) as preview line items. Each names its
+// subscription_item so clients can split credits per item; invoice-level
+// discount amounts go on the first charge line.
 func prorationPreviewLines(in prorationPreviewInput) []map[string]any {
 	sub := in.subscription
-	newItems := billing.AssignSubscriptionItemIDs(sub.ID, in.newItems)
-	newByID := map[string]billing.LineItem{}
-	for _, item := range newItems {
-		newByID[item.ID] = item
-	}
-	unchanged := map[string]bool{}
 	lines := []map[string]any{}
-	add := func(item billing.LineItem, itemID string, amount int64, description string, prices map[string]map[string]any) {
+	discountLine := -1
+	for _, line := range billing.ProrationLines(sub.ID, sub.Items, in.oldAmounts, in.newItems, in.newAmounts, in.remaining, in.period, in.subtotal) {
+		item := line.Item
 		quantity := item.Quantity
 		if quantity <= 0 {
 			quantity = 1
+		}
+		prices, description := in.newPrices, "Remaining time after subscription update"
+		if line.Amount < 0 {
+			prices, description = in.oldPrices, "Unused time after subscription update"
+		} else if discountLine < 0 {
+			discountLine = len(lines)
 		}
 		var price any
 		if payload, ok := prices[item.PriceID]; ok {
@@ -45,7 +46,7 @@ func prorationPreviewLines(in prorationPreviewInput) []map[string]any {
 		lines = append(lines, map[string]any{
 			"id":               "il_preview_" + sanitizeID(sub.ID) + "_" + strconv.Itoa(len(lines)),
 			"object":           "line_item",
-			"amount":           amount,
+			"amount":           line.Amount,
 			"currency":         in.currency,
 			"description":      description,
 			"discount_amounts": []map[string]any{},
@@ -62,50 +63,16 @@ func prorationPreviewLines(in prorationPreviewInput) []map[string]any {
 					"price":             item.PriceID,
 					"proration":         true,
 					"subscription":      sub.ID,
-					"subscription_item": itemID,
+					"subscription_item": item.ID,
 				},
 			},
 		})
 	}
-	for idx, old := range sub.Items {
-		itemID := billing.ResolvedSubscriptionItemID(sub.ID, old, idx)
-		if next, ok := newByID[itemID]; ok && next.PriceID == old.PriceID && next.Quantity == old.Quantity {
-			unchanged[itemID] = true
-			continue
+	if len(lines) > 0 {
+		if discountLine < 0 {
+			discountLine = 0
 		}
-		amount := int64(0)
-		if idx < len(in.oldAmounts) {
-			amount = in.oldAmounts[idx].Amount
-		}
-		add(old, itemID, billing.ProrateDelta(-amount, in.remaining, in.period), "Unused time after subscription update", in.oldPrices)
+		lines[discountLine]["discount_amounts"] = in.discounts
 	}
-	for idx, item := range newItems {
-		if unchanged[item.ID] {
-			continue
-		}
-		amount := int64(0)
-		if idx < len(in.newAmounts) {
-			amount = in.newAmounts[idx].Amount
-		}
-		add(item, item.ID, billing.ProrateDelta(amount, in.remaining, in.period), "Remaining time after subscription update", in.newPrices)
-	}
-	if len(lines) == 0 {
-		return lines
-	}
-	sum := int64(0)
-	discountLine := -1
-	for idx, line := range lines {
-		amount := line["amount"].(int64)
-		sum += amount
-		if discountLine < 0 && amount > 0 {
-			discountLine = idx
-		}
-	}
-	last := lines[len(lines)-1]
-	last["amount"] = last["amount"].(int64) + in.subtotal - sum
-	if discountLine < 0 {
-		discountLine = 0
-	}
-	lines[discountLine]["discount_amounts"] = in.discounts
 	return lines
 }

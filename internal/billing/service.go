@@ -106,7 +106,7 @@ type Repository interface {
 	FinalizeInvoice(context.Context, Invoice, PaymentIntent, []TimelineEntry) (Invoice, PaymentIntent, error)
 	UpdateInvoicePayment(context.Context, Subscription, Invoice, PaymentIntent, []TimelineEntry) (Subscription, Invoice, PaymentIntent, error)
 	UpdateManualInvoicePayment(context.Context, Invoice, PaymentIntent, []TimelineEntry) (Invoice, PaymentIntent, error)
-	RecordSubscriptionRenewal(context.Context, Subscription, Invoice, PaymentIntent, []TimelineEntry) (Subscription, Invoice, PaymentIntent, error)
+	RecordSubscriptionRenewal(context.Context, Subscription, Invoice, PaymentIntent, []InvoiceItem, []TimelineEntry) (Subscription, Invoice, PaymentIntent, error)
 	GetPaymentIntent(context.Context, string) (PaymentIntent, error)
 	CreatePaymentIntent(context.Context, PaymentIntent) (PaymentIntent, error)
 	UpdatePaymentIntent(context.Context, PaymentIntent, []TimelineEntry) (PaymentIntent, error)
@@ -690,6 +690,7 @@ func (s *Service) completeCheckout(ctx context.Context, sessionID string, outcom
 	sub.Items = AssignSubscriptionItemIDs(sub.ID, sub.Items)
 
 	return s.repo.RecordCheckoutCompletion(ctx, CheckoutCompletion{
+		InvoiceItems:  subscriptionPeriodItems(invoice, sub.Items, lineAmounts, now, periodEnd, trialing),
 		SessionID:     session.ID,
 		SessionStatus: firstNonEmpty(outcomeSpec.SessionStatus, "complete"),
 		PaymentStatus: outcomeSpec.PaymentStatus,
@@ -2781,9 +2782,12 @@ func (s *Service) renewSubscription(ctx context.Context, sub Subscription, at ti
 	sub.Metadata = copyMap(sub.Metadata)
 	// create_prorations pending amount is added to the renewal subtotal, then
 	// discounts and tax run on the combined base (same flow as a normal renewal).
+	pendingProration := int64(0)
+	pendingProrationAt := decodeRFC3339(sub.Metadata[MetadataPendingProrationAt])
 	if pendingRaw := strings.TrimSpace(sub.Metadata[MetadataPendingProrationAmount]); pendingRaw != "" {
 		if pending, parseErr := strconv.ParseInt(pendingRaw, 10, 64); parseErr == nil {
 			subtotal += pending
+			pendingProration = pending
 		}
 		delete(sub.Metadata, MetadataPendingProrationAmount)
 		delete(sub.Metadata, MetadataPendingProrationAt)
@@ -2903,7 +2907,13 @@ func (s *Service) renewSubscription(ctx context.Context, sub Subscription, at ti
 	}
 
 	sub.Items = AssignSubscriptionItemIDs(sub.ID, sub.Items)
-	sub, invoice, intent, err = s.repo.RecordSubscriptionRenewal(ctx, sub, invoice, intent, timeline)
+	lines := subscriptionPeriodItems(invoice, sub.Items, lineAmounts, periodStart, periodEnd, false)
+	if pendingProration != 0 {
+		// ponytail: accumulated create_prorations land as one net line; keep
+		// per-item pending invoice items if a client needs that split here.
+		lines = append(lines, subscriptionInvoiceItem(invoice, LineItem{}, "", pendingProration, true, pendingProrationAt, periodStart, at))
+	}
+	sub, invoice, intent, err = s.repo.RecordSubscriptionRenewal(ctx, sub, invoice, intent, lines, timeline)
 	if err != nil {
 		return InvoicePaymentResult{}, err
 	}
@@ -3281,7 +3291,8 @@ func (s *Service) UpdateSubscriptionItemsWithProration(ctx context.Context, req 
 		)
 	}
 
-	savedSub, savedInvoice, savedIntent, err := s.repo.RecordSubscriptionRenewal(ctx, updated, invoice, intent, timeline)
+	lines := prorationInvoiceItems(invoice, sub, updated, oldLineAmounts, newLineAmounts, remaining, periodSeconds, creditSubtotal, resetAnchor, at)
+	savedSub, savedInvoice, savedIntent, err := s.repo.RecordSubscriptionRenewal(ctx, updated, invoice, intent, lines, timeline)
 	if err != nil {
 		return SubscriptionProrationResult{}, err
 	}

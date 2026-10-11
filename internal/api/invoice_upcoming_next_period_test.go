@@ -375,6 +375,17 @@ func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
 		t.Fatalf("renewal=%#v upcoming subtotal/total/tax=%d/%d/%d, want match",
 			renewal, preview.Subtotal, preview.Total, taxVal(preview))
 	}
+
+	// Stored renewal lines: the plan for the new period plus the pending proration.
+	renewed := getJSON[prorationSubResponse](t, handler, "/v1/subscriptions/"+updated.ID)
+	stored := getJSON[upcomingPreviewFields](t, handler, "/v1/invoices/"+renewed.LatestInvoice)
+	sum := int64(0)
+	for _, line := range stored.Lines.Data {
+		sum += line.Amount
+	}
+	if len(stored.Lines.Data) != 2 || sum != renewal.Subtotal || stored.Lines.Data[0].Amount != 9900 || stored.Lines.Data[0].Period.Start != periodEnd.Unix() || !stored.Lines.Data[1].Proration {
+		t.Fatalf("renewal lines=%#v, want 9900 plan line from %d plus pending proration summing to %d", stored.Lines.Data, periodEnd.Unix(), renewal.Subtotal)
+	}
 }
 
 // TestUpcomingNextPeriodTrialingUsesTrialEnd: period_start is trial_end.

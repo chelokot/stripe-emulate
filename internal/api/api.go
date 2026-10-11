@@ -3874,8 +3874,14 @@ func (h *Handler) handleInvoice(w http.ResponseWriter, r *http.Request) {
 			h.methodNotAllowed(w, r, "GET")
 			return
 		}
+		invoice, err := h.billing.GetInvoice(r.Context(), id)
+		if err != nil {
+			writeResult(w, nil, err)
+			return
+		}
 		items, err := h.billing.ListInvoiceItems(r.Context(), billing.InvoiceItemFilter{InvoiceID: id})
-		writeResult(w, stripeListFromRequest(r, stripeInvoiceItemMaps(items)), err)
+		lines, _ := stripeInvoiceLines(invoice, items)["data"].([]map[string]any)
+		writeResult(w, stripeListFromRequest(r, lines), err)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "payments" {
@@ -8039,7 +8045,7 @@ func (h *Handler) enrichStripeInvoice(ctx context.Context, invoice billing.Invoi
 	if err != nil {
 		items = nil
 	}
-	payload["lines"] = stripeInvoiceLines(invoice.ID, items)
+	payload["lines"] = stripeInvoiceLines(invoice, items)
 	payload["post_payment_credit_notes_amount"] = h.invoicePostPaymentCreditNotesAmount(ctx, invoice)
 	return payload
 }
@@ -8297,8 +8303,76 @@ func stripeInvoiceItemMaps(items []billing.InvoiceItem) []map[string]any {
 	return data
 }
 
-func stripeInvoiceLines(invoiceID string, items []billing.InvoiceItem) map[string]any {
-	return stripeList("/v1/invoices/"+invoiceID+"/lines", stripeInvoiceItemMaps(items))
+// stripeInvoiceLines renders stored invoice items as invoice lines with the
+// line-only fields: period, proration, parent, and the invoice discount spread
+// over the positive lines in proportion to their amounts.
+func stripeInvoiceLines(invoice billing.Invoice, items []billing.InvoiceItem) map[string]any {
+	positive := int64(0)
+	lastPositive := -1
+	for idx, item := range items {
+		if item.Amount > 0 {
+			positive += item.Amount
+			lastPositive = idx
+		}
+	}
+	allocated := int64(0)
+	data := make([]map[string]any, 0, len(items))
+	for idx, item := range items {
+		line := stripeInvoiceItem(item)
+		start, end := item.PeriodStart, item.PeriodEnd
+		if start.IsZero() {
+			start = item.CreatedAt
+		}
+		if end.IsZero() {
+			end = start
+		}
+		line["period"] = map[string]any{"start": unix(start), "end": unix(end)}
+		line["proration"] = item.Proration
+		share := int64(0)
+		if item.Amount > 0 && invoice.DiscountAmount > 0 {
+			if idx == lastPositive {
+				share = invoice.DiscountAmount - allocated
+			} else {
+				share = invoice.DiscountAmount * item.Amount / positive
+			}
+			allocated += share
+		}
+		line["discount_amounts"] = []map[string]any{}
+		if share > 0 {
+			line["discount_amounts"] = discountAmounts(invoice.Discounts, share)
+		}
+		subscriptionID := firstNonEmptyString(item.SubscriptionID, invoice.SubscriptionID)
+		if subscriptionID != "" {
+			invoiceItem := any(nil)
+			if item.Proration {
+				invoiceItem = item.ID
+			}
+			line["parent"] = map[string]any{
+				"type":                 "subscription_item_details",
+				"invoice_item_details": nil,
+				"subscription_item_details": map[string]any{
+					"invoice_item":      invoiceItem,
+					"proration":         item.Proration,
+					"proration_details": map[string]any{"credited_items": nil},
+					"subscription":      subscriptionID,
+					"subscription_item": emptyToNil(item.SubscriptionItemID),
+				},
+			}
+		} else {
+			line["parent"] = map[string]any{
+				"type": "invoice_item_details",
+				"invoice_item_details": map[string]any{
+					"invoice_item":      item.ID,
+					"proration":         false,
+					"proration_details": map[string]any{"credited_items": nil},
+					"subscription":      nil,
+				},
+				"subscription_item_details": nil,
+			}
+		}
+		data = append(data, line)
+	}
+	return stripeList("/v1/invoices/"+invoice.ID+"/lines", data)
 }
 
 func invoiceDueDate(invoice billing.Invoice) any {

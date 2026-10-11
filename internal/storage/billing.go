@@ -11,7 +11,7 @@ import (
 	"github.com/midagedev/billtap/internal/billing"
 )
 
-const invoiceItemColumns = `id, customer_id, invoice_id, amount, currency, description, metadata, created_at, price_id, product_id, quantity, subscription_id, tax_rates`
+const invoiceItemColumns = `id, customer_id, invoice_id, amount, currency, description, metadata, created_at, price_id, product_id, quantity, subscription_id, tax_rates, subscription_item_id, proration, period_start, period_end`
 
 var _ billing.Repository = (*SQLiteStore)(nil)
 
@@ -563,9 +563,7 @@ func (s *SQLiteStore) RecordCheckoutCompletion(ctx context.Context, c billing.Ch
 		}
 	}
 	for _, item := range c.InvoiceItems {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO invoice_items (`+invoiceItemColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID, encodeAppliedTaxRates(item.TaxRates)); err != nil {
+		if err := insertInvoiceItemTx(ctx, tx, item); err != nil {
 			return billing.CheckoutSession{}, err
 		}
 	}
@@ -740,6 +738,21 @@ func updateOpenInvoicePaymentTx(ctx context.Context, tx *sql.Tx, invoice billing
 	return billing.ErrInvalidInput
 }
 
+func insertInvoiceItemTx(ctx context.Context, tx *sql.Tx, item billing.InvoiceItem) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO invoice_items (`+invoiceItemColumns+`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID, encodeAppliedTaxRates(item.TaxRates),
+		item.SubscriptionItemID, boolInt(item.Proration), encodeZeroableTime(item.PeriodStart), encodeZeroableTime(item.PeriodEnd))
+	return err
+}
+
+func encodeZeroableTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return encodeTime(t)
+}
+
 func insertInvoiceTx(ctx context.Context, tx *sql.Tx, invoice billing.Invoice) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO invoices (id, customer_id, subscription_id, status, currency, subtotal, discount_amount, discounts, automatic_tax, tax, total, amount_due, amount_paid, attempt_count, next_payment_attempt, payment_intent_id, metadata, default_tax_rates, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -884,9 +897,7 @@ func (s *SQLiteStore) CreateInvoiceItem(ctx context.Context, item billing.Invoic
 		return billing.InvoiceItem{}, billing.Invoice{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO invoice_items (`+invoiceItemColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID, encodeAppliedTaxRates(item.TaxRates)); err != nil {
+	if err := insertInvoiceItemTx(ctx, tx, item); err != nil {
 		return billing.InvoiceItem{}, billing.Invoice{}, err
 	}
 	if invoice.ID != "" {
@@ -1200,7 +1211,7 @@ func (s *SQLiteStore) UpdateManualInvoicePayment(ctx context.Context, invoice bi
 	return updatedInvoice, updatedPI, nil
 }
 
-func (s *SQLiteStore) RecordSubscriptionRenewal(ctx context.Context, sub billing.Subscription, invoice billing.Invoice, pi billing.PaymentIntent, timeline []billing.TimelineEntry) (billing.Subscription, billing.Invoice, billing.PaymentIntent, error) {
+func (s *SQLiteStore) RecordSubscriptionRenewal(ctx context.Context, sub billing.Subscription, invoice billing.Invoice, pi billing.PaymentIntent, items []billing.InvoiceItem, timeline []billing.TimelineEntry) (billing.Subscription, billing.Invoice, billing.PaymentIntent, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return billing.Subscription{}, billing.Invoice{}, billing.PaymentIntent{}, err
@@ -1212,6 +1223,11 @@ func (s *SQLiteStore) RecordSubscriptionRenewal(ctx context.Context, sub billing
 	}
 	if err := insertInvoiceTx(ctx, tx, invoice); err != nil {
 		return billing.Subscription{}, billing.Invoice{}, billing.PaymentIntent{}, err
+	}
+	for _, item := range items {
+		if err := insertInvoiceItemTx(ctx, tx, item); err != nil {
+			return billing.Subscription{}, billing.Invoice{}, billing.PaymentIntent{}, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO payment_intents (id, customer_id, invoice_id, amount, currency, status, capture_method, failure_code, failure_decline_code, failure_message, payment_method_id, metadata, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1903,10 +1919,14 @@ func scanInvoice(row scanner) (billing.Invoice, error) {
 func scanInvoiceItem(row scanner) (billing.InvoiceItem, error) {
 	var item billing.InvoiceItem
 	var invoiceID sql.NullString
-	var metadataRaw, createdAt, taxRates string
-	if err := row.Scan(&item.ID, &item.CustomerID, &invoiceID, &item.Amount, &item.Currency, &item.Description, &metadataRaw, &createdAt, &item.PriceID, &item.ProductID, &item.Quantity, &item.SubscriptionID, &taxRates); err != nil {
+	var metadataRaw, createdAt, taxRates, periodStart, periodEnd string
+	var proration int
+	if err := row.Scan(&item.ID, &item.CustomerID, &invoiceID, &item.Amount, &item.Currency, &item.Description, &metadataRaw, &createdAt, &item.PriceID, &item.ProductID, &item.Quantity, &item.SubscriptionID, &taxRates, &item.SubscriptionItemID, &proration, &periodStart, &periodEnd); err != nil {
 		return item, err
 	}
+	item.Proration = proration != 0
+	item.PeriodStart = decodeTime(periodStart)
+	item.PeriodEnd = decodeTime(periodEnd)
 	item.TaxRates = decodeAppliedTaxRates(taxRates)
 	item.Object = billing.ObjectInvoiceItem
 	item.InvoiceID = invoiceID.String

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Subscription invoices now store their lines: checkout/create bills each
+  subscription item for its period, renewals bill the new period (plus one net
+  line for accumulated `create_prorations`), and `always_invoice` updates store
+  per-item proration lines (unused-time credit, remaining-time charge; with
+  `billing_cycle_anchor=now`, credits plus the new full period). Invoice lines
+  carry `period`, `proration`, `parent` (`subscription_item_details` with
+  `subscription_item`, or `invoice_item_details`) and the invoice discount
+  spread over positive lines in `discount_amounts`. Migration 025 adds the line
+  columns; invoices created before it keep empty `lines`.
+- Proration previews (`create_preview`, `upcoming`) return per-item lines naming
+  `parent.subscription_item_details.subscription_item` instead of one net line
+  on the first item; totals are unchanged.
+- `GET /v1/charges/{id}` serves PaymentIntent charges (`ch_<pi id>`, the id
+  refunds already use) with refunds and an expanded `balance_transaction`
+  (simulated 2.9% + 30 fee). Succeeded PaymentIntents expose `latest_charge`;
+  invoice payment records carry `payment.type=payment_intent`.
+- `POST /v1/invoiceitems` accepts `tax_rates[]`; the rates tax the invoice
+  through finalize and pay (migration 024). Mixed rate sets on one invoice are
+  rejected.
+- `DELETE /v1/subscriptions/{id}` keeps `cancellation_details[comment|feedback]`.
 - One stderr log line per Stripe API request (method, path, run, status,
   request id; 4xx adds error code/param/message and the sorted parameter names,
   never values). Disable with `BILLTAP_REQUEST_LOG=off`.
