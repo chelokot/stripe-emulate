@@ -45,6 +45,7 @@ Supported boundary config:
 - `BILLTAP_RETENTION_DAYS=30`
 - `BILLTAP_WEBHOOK_SIGNATURE_HEADER=Billtap-Signature|Stripe-Signature`
 - `BILLTAP_WEBHOOK_API_VERSION=2025-12-15.clover`
+- `BILLTAP_REQUEST_LOG=on|off` (default `on`)
 
 ## Data Rules
 
@@ -83,6 +84,10 @@ Production:
 - `BILLTAP_WEBHOOK_API_VERSION` changes only the webhook envelope
   `api_version` field so SDK consumers can deserialize typed `data.object`
   payloads with their pinned Stripe API version.
+- The request log writes one line per `/v1` / `/v2` request to stderr (method,
+  path, run, status, request id, duration). 4xx lines add the error code, param,
+  redacted message and the sorted parameter *names*; parameter values are never
+  logged. `BILLTAP_REQUEST_LOG=off` disables it.
 - Retention can redact old webhook raw payloads, delivery request bodies, and response bodies while preserving IDs, timestamps, statuses, event types, and metadata.
 - Audit log records webhook replay and delivery override actions.
 

@@ -176,8 +176,9 @@ func TestUpcomingItemOverrideKeepsProrationPath(t *testing.T) {
 	if preview.Subtotal != 5000 || taxVal(preview) != 500 || preview.Total != 5500 {
 		t.Fatalf("proration preview = %#v, want 5000/500/5500", preview)
 	}
-	if len(preview.Lines.Data) != 1 || !preview.Lines.Data[0].Proration {
-		t.Fatalf("lines = %#v, want one proration line", preview.Lines.Data)
+	// Stripe shape: unused time on the old price, remaining time on the new one.
+	if len(preview.Lines.Data) != 2 || !preview.Lines.Data[0].Proration || preview.Lines.Data[0].Amount+preview.Lines.Data[1].Amount != 5000 {
+		t.Fatalf("lines = %#v, want two proration lines netting 5000", preview.Lines.Data)
 	}
 	assertInvoiceInvariant(t, preview)
 }
@@ -373,6 +374,17 @@ func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
 	if renewal.Subtotal != preview.Subtotal || renewal.Total != preview.Total || renewal.Tax != taxVal(preview) {
 		t.Fatalf("renewal=%#v upcoming subtotal/total/tax=%d/%d/%d, want match",
 			renewal, preview.Subtotal, preview.Total, taxVal(preview))
+	}
+
+	// Stored renewal lines: the plan for the new period plus the pending proration.
+	renewed := getJSON[prorationSubResponse](t, handler, "/v1/subscriptions/"+updated.ID)
+	stored := getJSON[upcomingPreviewFields](t, handler, "/v1/invoices/"+renewed.LatestInvoice)
+	sum := int64(0)
+	for _, line := range stored.Lines.Data {
+		sum += line.Amount
+	}
+	if len(stored.Lines.Data) != 2 || sum != renewal.Subtotal || stored.Lines.Data[0].Amount != 9900 || stored.Lines.Data[0].Period.Start != periodEnd.Unix() || !stored.Lines.Data[1].Proration {
+		t.Fatalf("renewal lines=%#v, want 9900 plan line from %d plus pending proration summing to %d", stored.Lines.Data, periodEnd.Unix(), renewal.Subtotal)
 	}
 }
 

@@ -6892,8 +6892,9 @@ func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
 				Parent    struct {
 					Type                    string `json:"type"`
 					SubscriptionItemDetails struct {
-						Proration bool   `json:"proration"`
-						Price     string `json:"price"`
+						Proration        bool   `json:"proration"`
+						Price            string `json:"price"`
+						SubscriptionItem string `json:"subscription_item"`
 					} `json:"subscription_item_details"`
 				} `json:"parent"`
 			} `json:"data"`
@@ -6912,8 +6913,13 @@ func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
 		"subscription_details[proration_date]":       {strconv.FormatInt(prorationDate, 10)},
 		"subscription_details[billing_cycle_anchor]": {"now"},
 	})
-	if preview.Object != "invoice" || preview.AmountDue != 1000 || preview.BilltapPreview.BillingCycleAnchor != prorationDate || len(preview.Lines.Data) != 1 || !preview.Lines.Data[0].Proration || preview.Lines.Data[0].Parent.SubscriptionItemDetails.Price != pro.ID {
-		t.Fatalf("preview = %#v, want one 1000-cent proration line and accepted billing_cycle_anchor", preview)
+	if preview.Object != "invoice" || preview.AmountDue != 1000 || preview.BilltapPreview.BillingCycleAnchor != prorationDate || len(preview.Lines.Data) != 2 || preview.Lines.Data[1].Parent.SubscriptionItemDetails.Price != pro.ID || preview.Lines.Data[0].Amount+preview.Lines.Data[1].Amount != 1000 {
+		t.Fatalf("preview = %#v, want unused-time credit + remaining-time charge netting 1000 and accepted billing_cycle_anchor", preview)
+	}
+	for _, line := range preview.Lines.Data {
+		if !line.Proration || !strings.HasPrefix(line.Parent.SubscriptionItemDetails.SubscriptionItem, "si_") {
+			t.Fatalf("proration line = %#v, want proration with subscription_item", line)
+		}
 	}
 	if preview.AttemptCount != 0 || preview.Attempted || preview.AutoAdvance || preview.BillingReason != "subscription_update" || preview.CollectionMethod != "charge_automatically" || preview.Paid || preview.PaymentIntent != nil {
 		t.Fatalf("preview SDK invoice defaults = %#v, want Stripe invoice defaults", preview)

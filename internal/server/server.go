@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -240,12 +241,17 @@ func (s *Server) buildAPIHandler(store storage.Store) (http.Handler, error) {
 	// Evidence objects (coupons, tax rates, cash balances, ...) live in the run's own
 	// store when it can hold them, so they survive a restart like every other object.
 	evidenceRepo, _ := store.(api.LocalEvidenceRepository)
+	var requestLog *slog.Logger
+	if !s.cfg.RequestLogDisabled {
+		requestLog = slog.Default()
+	}
 	return api.New(api.Options{
 		Billing:       billing.NewService(repo),
 		Webhooks:      webhookService,
 		Diagnostics:   diagnosticsService,
 		PublicBaseURL: config.PublicBaseURLWithPath(s.cfg.PublicBaseURL, s.cfg.PublicBasePath),
 		LocalEvidence: evidenceRepo,
+		RequestLog:    requestLog,
 	}), nil
 }
 

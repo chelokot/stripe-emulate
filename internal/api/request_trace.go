@@ -36,12 +36,13 @@ func (h *Handler) serveWithRequestTrace(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) recordRequestTrace(r *http.Request, rawBody []byte, status int, responseBody []byte, start time.Time) {
+	object, objectID, errType, errCode, errParam := responseEvidenceFields(responseBody)
+	h.logRequest(r, rawBody, status, responseBody, errCode, errParam, start)
 	if h.diagnostics == nil {
 		return
 	}
 	bodyEvidence := redactedBodyEvidence(r.Header.Get("Content-Type"), rawBody)
 	responseEvidence := truncateEvidence(security.RedactText(string(responseBody)))
-	object, objectID, errType, errCode, errParam := responseEvidenceFields(responseBody)
 	relatedIDs := relatedIDsForTrace(r.URL.Path, string(rawBody), string(responseBody))
 	if objectID != "" {
 		relatedIDs = addRelatedID(relatedIDs, objectID)
@@ -67,6 +68,59 @@ func (h *Handler) recordRequestTrace(r *http.Request, rawBody []byte, status int
 		RelatedIDs:       relatedIDs,
 		CreatedAt:        start,
 	})
+}
+
+// logRequest writes one line per request. 4xx lines add the rejection and the
+// received parameter names (never values), so a client's request shape can be
+// diagnosed from container logs.
+func (h *Handler) logRequest(r *http.Request, rawBody []byte, status int, responseBody []byte, errCode string, errParam string, start time.Time) {
+	if h.requestLog == nil {
+		return
+	}
+	attrs := []any{
+		"method", r.Method,
+		"path", r.URL.Path,
+		"run", strings.TrimSpace(r.Header.Get(runIDHeader)),
+		"status", status,
+		"request_id", requestIDForTrace(r),
+		"duration_ms", time.Since(start).Milliseconds(),
+	}
+	if status >= 400 && status < 500 {
+		var payload struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(responseBody, &payload)
+		attrs = append(attrs,
+			"error_code", errCode,
+			"error_param", errParam,
+			"error_message", security.RedactText(payload.Error.Message),
+			"param_keys", requestParamKeys(r, rawBody),
+		)
+	}
+	h.requestLog.Info("request", attrs...)
+}
+
+// requestParamKeys lists query and form-body parameter names, sorted, without values.
+func requestParamKeys(r *http.Request, rawBody []byte) []string {
+	seen := map[string]struct{}{}
+	for key := range r.URL.Query() {
+		seen[key] = struct{}{}
+	}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+		if values, err := url.ParseQuery(string(rawBody)); err == nil {
+			for key := range values {
+				seen[key] = struct{}{}
+			}
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func ensureTraceRequestID(w http.ResponseWriter, r *http.Request) {

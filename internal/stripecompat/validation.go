@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -131,18 +132,43 @@ func validateValues(operation OperationValidation, values map[string][]string) *
 		params[param.Name] = param
 	}
 
-	for key, items := range values {
+	// Sorted keys keep the reported error deterministic; unknown keys win over
+	// other errors and are all named in the message.
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var unknown []string
+	var firstErr *ValidationError
+	for _, key := range keys {
+		items := values[key]
 		if len(items) == 0 {
 			continue
 		}
 		root := rootParamName(key)
 		param, ok := params[root]
 		if !ok {
-			return unknownValidationParam(key)
+			unknown = append(unknown, key)
+			continue
 		}
 		if err := validateParamValue(param, key, items); err != nil {
-			return err
+			if err.Code == ValidationCodeParamUnknown {
+				unknown = append(unknown, key)
+			} else if firstErr == nil {
+				firstErr = err
+			}
 		}
+	}
+	if len(unknown) > 0 {
+		err := unknownValidationParam(unknown[0])
+		if len(unknown) > 1 {
+			err.Message = fmt.Sprintf("Received unknown parameters: %s.", strings.Join(unknown, ", "))
+		}
+		return err
+	}
+	if firstErr != nil {
+		return firstErr
 	}
 
 	for _, param := range operation.Params {

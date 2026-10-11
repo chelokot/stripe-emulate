@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- `POST /v1/invoiceitems` accepts `amount=0` (and 0-cost prices), as Stripe
+  does. Paying a draft subscription invoice created through `POST /v1/invoices`
+  finalizes it first instead of failing with `resource_missing`, including
+  `paid_out_of_band`.
+- Subscription invoices now store their lines: checkout/create bills each
+  subscription item for its period, renewals bill the new period (plus one net
+  line for accumulated `create_prorations`), and `always_invoice` updates store
+  per-item proration lines (unused-time credit, remaining-time charge; with
+  `billing_cycle_anchor=now`, credits plus the new full period). Invoice lines
+  carry `period`, `proration`, `parent` (`subscription_item_details` with
+  `subscription_item`, or `invoice_item_details`) and the invoice discount
+  spread over positive lines in `discount_amounts`. Migration 025 adds the line
+  columns; invoices created before it keep empty `lines`.
+- Proration previews (`create_preview`, `upcoming`) return per-item lines naming
+  `parent.subscription_item_details.subscription_item` instead of one net line
+  on the first item; totals are unchanged.
+- `GET /v1/charges/{id}` serves PaymentIntent charges (`ch_<pi id>`, the id
+  refunds already use) with refunds and an expanded `balance_transaction`
+  (simulated 2.9% + 30 fee). Succeeded PaymentIntents expose `latest_charge`;
+  invoice payment records carry `payment.type=payment_intent`.
+- `POST /v1/invoiceitems` accepts `tax_rates[]`; the rates tax the invoice
+  through finalize and pay (migration 024). Mixed rate sets on one invoice are
+  rejected.
+- `DELETE /v1/subscriptions/{id}` keeps `cancellation_details[comment|feedback]`.
+- One stderr log line per Stripe API request (method, path, run, status,
+  request id; 4xx adds error code/param/message and the sorted parameter names,
+  never values). Disable with `BILLTAP_REQUEST_LOG=off`.
+- Unknown-parameter errors are deterministic: keys are checked in sorted order,
+  `param` is the first unknown key, and the message lists every unknown key
+  (`Received unknown parameters: a, b.`) instead of one at random.
+- `POST /v1/checkout/sessions` accepts `invoice_creation[enabled]` and
+  `invoice_creation[invoice_data][description|footer|metadata][...]` in payment
+  mode. A paid completion creates a `paid` manual Invoice (lines from the
+  session line items, `metadata` from `invoice_data.metadata` only) whose
+  `payments` points at the session PaymentIntent, sets `session.invoice`, and
+  emits `invoice.created` / `invoice.finalized` / `invoice.payment_succeeded` /
+  `invoice.paid` alongside the checkout and PaymentIntent events.
+- Payment-mode Checkout Sessions accept `line_items[n][tax_rates][]` when every
+  line item uses the same tax rates; the rates tax the session total, the
+  PaymentIntent amount and the created Invoice. Mixed per-line rates,
+  subscription mode, and `automatic_tax[enabled]` together are rejected.
 - `DELETE /v1/test_helpers/test_clocks/{id}` removes a test clock and detaches
   it from the customers and subscriptions that referenced it (Stripe deletes
   attached objects; Billtap keeps them detached so fixture packs can re-seed

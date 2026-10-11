@@ -35,7 +35,7 @@ under Apache-2.0.
 - Coverage focus: request validation, protocol parameter acceptance,
   idempotency mismatch, deterministic checkout payment-error aliases,
   direct intent state machines, and billing lifecycle retry/renewal mutations
-- OpenAPI operation baseline: `201 / 587`, `34.2%`
+- OpenAPI operation baseline: `202 / 587`, `34.4%`
 - Long-running OpenAPI operation target: at least `529 / 587`, `90.0%`, at
   `L1+` with deeper P0/P1 behavior gates
 

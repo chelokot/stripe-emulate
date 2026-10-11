@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -34,12 +35,15 @@ type Options struct {
 	// LocalEvidence persists coupons, promotion codes, schedules, disputes, tax
 	// rates, tax IDs and cash balances. Nil keeps them in memory only.
 	LocalEvidence LocalEvidenceRepository
+	// RequestLog gets one line per Stripe API request. Nil disables it.
+	RequestLog *slog.Logger
 }
 
 type Handler struct {
 	billing     *billing.Service
 	webhooks    *webhooks.Service
 	diagnostics *diagnostics.Service
+	requestLog  *slog.Logger
 	publicBase  string
 	mux         *http.ServeMux
 	idem        *idempotencyStore
@@ -63,6 +67,7 @@ func New(opts Options) http.Handler {
 		billing:     opts.Billing,
 		webhooks:    opts.Webhooks,
 		diagnostics: opts.Diagnostics,
+		requestLog:  opts.RequestLog,
 		publicBase:  strings.TrimRight(opts.PublicBaseURL, "/"),
 		mux:         http.NewServeMux(),
 		idem:        newIdempotencyStore(),
@@ -76,7 +81,7 @@ func New(opts Options) http.Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.diagnostics != nil && isStripeAPIPath(r.URL.Path) {
+	if (h.diagnostics != nil || h.requestLog != nil) && isStripeAPIPath(r.URL.Path) {
 		h.serveWithRequestTrace(w, r)
 		return
 	}
@@ -1645,6 +1650,13 @@ func (h *Handler) handleCheckoutSessions(w http.ResponseWriter, r *http.Request)
 			writeResult(w, nil, err)
 			return
 		}
+		// Payment mode has no subscription_data; uniform line tax_rates become the session rates.
+		if lineTaxRateIDs, _ := p.checkoutLineTaxRateIDs(mode); len(lineTaxRateIDs) > 0 {
+			if defaultTaxRates, err = h.appliedTaxRatesFromIDs(lineTaxRateIDs); err != nil {
+				writeResult(w, nil, err)
+				return
+			}
+		}
 		session, err := h.billing.CreateCheckoutSession(r.Context(), billing.CheckoutSession{
 			CustomerID:               p.first("customer", "customer_id"),
 			Mode:                     mode,
@@ -1665,6 +1677,9 @@ func (h *Handler) handleCheckoutSessions(w http.ResponseWriter, r *http.Request)
 			PaymentIntentDescription: p.string("payment_intent_data[description]"),
 			ReceiptEmail:             p.string("payment_intent_data[receipt_email]"),
 			CaptureMethod:            p.string("payment_intent_data[capture_method]"),
+			// invoice_data[description|footer] are accepted but not modeled.
+			InvoiceCreation: p.boolDefault("invoice_creation[enabled]", false),
+			InvoiceMetadata: p.prefixedMetadata("invoice_creation[invoice_data][metadata]["),
 		})
 		if err == nil {
 			session.URL = h.absoluteURL(r, session.URL)
@@ -2448,7 +2463,18 @@ func (h *Handler) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 		writeResult(w, h.stripeSubscription(r, subscription), err)
 	case http.MethodDelete:
-		subscription, err := h.billing.CancelPortalSubscription(r.Context(), id, billing.PortalCancel{Mode: "immediate"})
+		p, err := parseParams(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		cancel := billing.PortalCancel{Mode: "immediate", Metadata: map[string]string{}}
+		for param, key := range map[string]string{"cancellation_details[comment]": "cancellation_details_comment", "cancellation_details[feedback]": "cancellation_details_feedback"} {
+			if value := p.string(param); value != "" {
+				cancel.Metadata[key] = value
+			}
+		}
+		subscription, err := h.billing.CancelPortalSubscription(r.Context(), id, cancel)
 		if err == nil {
 			h.emitSubscriptionWebhook(r, "customer.subscription.deleted", subscription, webhooks.SourceAPI)
 		}
@@ -2920,7 +2946,7 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 	description := "Upcoming invoice preview"
 	var prorationSkippedReason any
 	if subscription.ID != "" {
-		oldTotal, oldCurrency, _, err := h.lineItemTotal(ctx, subscription.Items)
+		oldTotal, oldCurrency, oldPrices, err := h.lineItemTotal(ctx, subscription.Items)
 		if err != nil {
 			return nil, err
 		}
@@ -2935,10 +2961,12 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		oldDiscountedTotal, _ := billing.ApplyDiscountsWithEligibleBase(oldTotal, eligibleOld, currency, discounts)
 		amount = 0
 		subtotal = 0
+		var remainingSeconds, periodSeconds int64
+		ok := false
 		totalDiscountAmount = 0
 		if behavior == "none" {
 			prorationSkippedReason = "behavior_none"
-		} else if remainingSeconds, periodSeconds, ok := billing.ProrationFactor(subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd, createdAt); ok {
+		} else if remainingSeconds, periodSeconds, ok = billing.ProrationFactor(subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd, createdAt); ok {
 			subtotal = billing.ProrateDelta(newTotal-oldTotal, remainingSeconds, periodSeconds)
 			amount = billing.ProrateDelta(discountedTotal-oldDiscountedTotal, remainingSeconds, periodSeconds)
 			totalDiscountAmount = subtotal - amount
@@ -2954,39 +2982,20 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		description = "Subscription update preview"
 		if amount != 0 {
 			prorationSkippedReason = nil
-			priceID := ""
-			quantity := int64(1)
-			var pricePayload any
-			if len(items) > 0 {
-				priceID = items[0].PriceID
-				quantity = items[0].Quantity
-				pricePayload = prices[priceID]
-			}
-			lines = append(lines, map[string]any{
-				"id":               "il_preview_" + sanitizeID(subscription.ID),
-				"object":           "line_item",
-				"amount":           amount,
-				"currency":         currency,
-				"description":      "Proration for subscription update",
-				"discount_amounts": discountAmounts(discounts, totalDiscountAmount),
-				"discountable":     false,
-				"period": map[string]any{
-					"start": createdAt.Unix(),
-					"end":   subscription.CurrentPeriodEnd.Unix(),
-				},
-				"proration":    true,
-				"price":        pricePayload,
-				"quantity":     quantity,
-				"subscription": subscription.ID,
-				"type":         "invoiceitem",
-				"parent": map[string]any{
-					"type": "subscription_item_details",
-					"subscription_item_details": map[string]any{
-						"price":        priceID,
-						"proration":    true,
-						"subscription": subscription.ID,
-					},
-				},
+			lines = prorationPreviewLines(prorationPreviewInput{
+				subscription: subscription,
+				oldPrices:    oldPrices,
+				newPrices:    prices,
+				oldAmounts:   oldLineAmounts,
+				newItems:     items,
+				newAmounts:   newLineAmounts,
+				remaining:    remainingSeconds,
+				period:       periodSeconds,
+				subtotal:     subtotal,
+				discounts:    discountAmounts(discounts, totalDiscountAmount),
+				currency:     currency,
+				start:        createdAt.Unix(),
+				end:          subscription.CurrentPeriodEnd.Unix(),
 			})
 		}
 	}
@@ -3254,9 +3263,10 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 				"parent": map[string]any{
 					"type": "subscription_item_details",
 					"subscription_item_details": map[string]any{
-						"price":        item.PriceID,
-						"proration":    false,
-						"subscription": subscription.ID,
+						"price":             item.PriceID,
+						"proration":         false,
+						"subscription":      subscription.ID,
+						"subscription_item": billing.ResolvedSubscriptionItemID(subscription.ID, item, idx),
 					},
 				},
 			})
@@ -3686,6 +3696,10 @@ func (h *Handler) handleInvoiceItems(w http.ResponseWriter, r *http.Request) {
 			item.Amount = price.UnitAmount * quantity
 			item.Currency = price.Currency
 		}
+		if item.TaxRates, err = h.appliedTaxRatesFromParams(p, "tax_rates"); err != nil {
+			writeResult(w, nil, err)
+			return
+		}
 		created, _, err := h.billing.CreateInvoiceItem(r.Context(), item)
 		writeResult(w, stripeInvoiceItem(created), err)
 	case http.MethodGet:
@@ -3693,7 +3707,15 @@ func (h *Handler) handleInvoiceItems(w http.ResponseWriter, r *http.Request) {
 			CustomerID: r.URL.Query().Get("customer"),
 			InvoiceID:  r.URL.Query().Get("invoice"),
 		})
-		writeResult(w, stripeListFromRequest(r, stripeInvoiceItemMaps(items)), err)
+		// Stripe lists invoice items (one-offs, prorations), not the regular
+		// subscription lines Billtap stores in the same table.
+		listed := items[:0]
+		for _, item := range items {
+			if item.SubscriptionItemID == "" || item.Proration {
+				listed = append(listed, item)
+			}
+		}
+		writeResult(w, stripeListFromRequest(r, stripeInvoiceItemMaps(listed)), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
@@ -3860,8 +3882,14 @@ func (h *Handler) handleInvoice(w http.ResponseWriter, r *http.Request) {
 			h.methodNotAllowed(w, r, "GET")
 			return
 		}
+		invoice, err := h.billing.GetInvoice(r.Context(), id)
+		if err != nil {
+			writeResult(w, nil, err)
+			return
+		}
 		items, err := h.billing.ListInvoiceItems(r.Context(), billing.InvoiceItemFilter{InvoiceID: id})
-		writeResult(w, stripeListFromRequest(r, stripeInvoiceItemMaps(items)), err)
+		lines, _ := stripeInvoiceLines(invoice, items)["data"].([]map[string]any)
+		writeResult(w, stripeListFromRequest(r, lines), err)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "payments" {
@@ -6822,8 +6850,11 @@ func (p params) lineItems() []billing.LineItem {
 }
 
 func (p params) paymentIntentDataMetadata() map[string]string {
+	return p.prefixedMetadata("payment_intent_data[metadata][")
+}
+
+func (p params) prefixedMetadata(prefix string) map[string]string {
 	out := map[string]string{}
-	prefix := "payment_intent_data[metadata]["
 	for key, value := range p.values {
 		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, "]") {
 			continue
@@ -7842,6 +7873,26 @@ func (h *Handler) stripeCheckoutSession(r *http.Request, session billing.Checkou
 			"enabled":  session.TaxIDCollection,
 			"required": "never",
 		},
+		"invoice_creation": stripeCheckoutInvoiceCreation(session),
+	}
+}
+
+// Stripe returns invoice_creation only for payment mode (null otherwise).
+func stripeCheckoutInvoiceCreation(session billing.CheckoutSession) any {
+	if session.Mode != "payment" {
+		return nil
+	}
+	return map[string]any{
+		"enabled": session.InvoiceCreation,
+		"invoice_data": map[string]any{
+			"account_tax_ids":   nil,
+			"custom_fields":     nil,
+			"description":       nil,
+			"footer":            nil,
+			"issuer":            nil,
+			"metadata":          nonNilMap(session.InvoiceMetadata),
+			"rendering_options": nil,
+		},
 	}
 }
 
@@ -8002,7 +8053,7 @@ func (h *Handler) enrichStripeInvoice(ctx context.Context, invoice billing.Invoi
 	if err != nil {
 		items = nil
 	}
-	payload["lines"] = stripeInvoiceLines(invoice.ID, items)
+	payload["lines"] = stripeInvoiceLines(invoice, items)
 	payload["post_payment_credit_notes_amount"] = h.invoicePostPaymentCreditNotesAmount(ctx, invoice)
 	return payload
 }
@@ -8230,6 +8281,7 @@ func stripeInvoiceItem(item billing.InvoiceItem) map[string]any {
 		"currency":     item.Currency,
 		"description":  emptyToNil(item.Description),
 		"metadata":     nonNilMap(item.Metadata),
+		"tax_rates":    synthesizeTaxRateObjects(item.TaxRates),
 		"quantity":     quantity,
 		"created":      unix(item.CreatedAt),
 		"livemode":     false,
@@ -8259,8 +8311,76 @@ func stripeInvoiceItemMaps(items []billing.InvoiceItem) []map[string]any {
 	return data
 }
 
-func stripeInvoiceLines(invoiceID string, items []billing.InvoiceItem) map[string]any {
-	return stripeList("/v1/invoices/"+invoiceID+"/lines", stripeInvoiceItemMaps(items))
+// stripeInvoiceLines renders stored invoice items as invoice lines with the
+// line-only fields: period, proration, parent, and the invoice discount spread
+// over the positive lines in proportion to their amounts.
+func stripeInvoiceLines(invoice billing.Invoice, items []billing.InvoiceItem) map[string]any {
+	positive := int64(0)
+	lastPositive := -1
+	for idx, item := range items {
+		if item.Amount > 0 {
+			positive += item.Amount
+			lastPositive = idx
+		}
+	}
+	allocated := int64(0)
+	data := make([]map[string]any, 0, len(items))
+	for idx, item := range items {
+		line := stripeInvoiceItem(item)
+		start, end := item.PeriodStart, item.PeriodEnd
+		if start.IsZero() {
+			start = item.CreatedAt
+		}
+		if end.IsZero() {
+			end = start
+		}
+		line["period"] = map[string]any{"start": unix(start), "end": unix(end)}
+		line["proration"] = item.Proration
+		share := int64(0)
+		if item.Amount > 0 && invoice.DiscountAmount > 0 {
+			if idx == lastPositive {
+				share = invoice.DiscountAmount - allocated
+			} else {
+				share = invoice.DiscountAmount * item.Amount / positive
+			}
+			allocated += share
+		}
+		line["discount_amounts"] = []map[string]any{}
+		if share > 0 {
+			line["discount_amounts"] = discountAmounts(invoice.Discounts, share)
+		}
+		subscriptionID := firstNonEmptyString(item.SubscriptionID, invoice.SubscriptionID)
+		if subscriptionID != "" {
+			invoiceItem := any(nil)
+			if item.Proration {
+				invoiceItem = item.ID
+			}
+			line["parent"] = map[string]any{
+				"type":                 "subscription_item_details",
+				"invoice_item_details": nil,
+				"subscription_item_details": map[string]any{
+					"invoice_item":      invoiceItem,
+					"proration":         item.Proration,
+					"proration_details": map[string]any{"credited_items": nil},
+					"subscription":      subscriptionID,
+					"subscription_item": emptyToNil(item.SubscriptionItemID),
+				},
+			}
+		} else {
+			line["parent"] = map[string]any{
+				"type": "invoice_item_details",
+				"invoice_item_details": map[string]any{
+					"invoice_item":      item.ID,
+					"proration":         false,
+					"proration_details": map[string]any{"credited_items": nil},
+					"subscription":      nil,
+				},
+				"subscription_item_details": nil,
+			}
+		}
+		data = append(data, line)
+	}
+	return stripeList("/v1/invoices/"+invoice.ID+"/lines", data)
 }
 
 func invoiceDueDate(invoice billing.Invoice) any {
@@ -8288,6 +8408,7 @@ func stripeInvoicePaymentRecords(invoice billing.Invoice, intent *billing.Paymen
 	payment := map[string]any{
 		"id":             "py_" + sanitizeID(invoice.PaymentIntentID),
 		"object":         "payment",
+		"type":           "payment_intent",
 		"payment_intent": paymentIntent,
 		"status":         status,
 	}
@@ -8503,6 +8624,7 @@ func stripePaymentIntent(intent billing.PaymentIntent) map[string]any {
 		"receipt_email":      emptyToNil(intent.Metadata["billtap_receipt_email"]),
 		"setup_future_usage": emptyToNil(intent.Metadata["billtap_setup_future_usage"]),
 		"payment_method":     emptyToNil(intent.PaymentMethodID),
+		"latest_charge":      emptyToNil(paymentIntentChargeID(intent)),
 		"metadata":           nonNilMap(intent.Metadata),
 		"last_payment_error": paymentIntentError(intent),
 		"next_action":        paymentIntentNextAction(intent),
@@ -8585,6 +8707,77 @@ func stripeRefund(refund billing.Refund) map[string]any {
 		"created":        unix(refund.CreatedAt),
 		"livemode":       false,
 	}
+}
+
+// paymentIntentChargeID is the charge a PaymentIntent produced; Billtap names it
+// after the PI (as refunds already do), so no charges table is needed.
+func paymentIntentChargeID(intent billing.PaymentIntent) string {
+	switch intent.Status {
+	case "succeeded", "requires_capture":
+		return "ch_" + intent.ID
+	}
+	return ""
+}
+
+// handleCharge serves GET /v1/charges/{id} for PaymentIntent charges, with the
+// balance_transaction always expanded (Billtap pre-expands instead of honoring expand[]).
+func (h *Handler) handleCharge(w http.ResponseWriter, r *http.Request, chargeID string) {
+	if r.Method != http.MethodGet {
+		h.methodNotAllowed(w, r, "GET")
+		return
+	}
+	intent, err := h.billing.GetPaymentIntent(r.Context(), strings.TrimPrefix(chargeID, "ch_"))
+	if err != nil || paymentIntentChargeID(intent) != chargeID {
+		writeResult(w, nil, billing.ErrNotFound)
+		return
+	}
+	refunds, _ := h.billing.ListRefunds(r.Context(), billing.RefundFilter{ChargeID: chargeID})
+	refunded := int64(0)
+	refundData := make([]map[string]any, 0, len(refunds))
+	for _, refund := range refunds {
+		if refund.Status != "failed" && refund.Status != "canceled" {
+			refunded += refund.Amount
+		}
+		refundData = append(refundData, stripeRefund(refund))
+	}
+	captured := intent.Status == "succeeded"
+	amountCaptured := int64(0)
+	if captured {
+		amountCaptured = intent.Amount
+	}
+	// ponytail: fixed simulated 2.9% + 30 fee; make it configurable if a test asserts real pricing.
+	fee := intent.Amount*29/1000 + 30
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":              chargeID,
+		"object":          "charge",
+		"amount":          intent.Amount,
+		"amount_captured": amountCaptured,
+		"amount_refunded": refunded,
+		"balance_transaction": map[string]any{
+			"id":       "txn_" + intent.ID,
+			"object":   "balance_transaction",
+			"amount":   amountCaptured,
+			"fee":      fee,
+			"net":      amountCaptured - fee,
+			"currency": intent.Currency,
+			"source":   chargeID,
+			"status":   "available",
+			"type":     "charge",
+			"created":  unix(intent.CreatedAt),
+		},
+		"captured":       captured,
+		"currency":       intent.Currency,
+		"customer":       emptyToNil(intent.CustomerID),
+		"payment_intent": intent.ID,
+		"payment_method": emptyToNil(intent.PaymentMethodID),
+		"paid":           true,
+		"refunded":       refunded > 0 && refunded >= intent.Amount,
+		"refunds":        stripeList("/v1/refunds?charge="+url.QueryEscape(chargeID), refundData),
+		"status":         "succeeded",
+		"metadata":       nonNilMap(intent.Metadata),
+		"created":        unix(intent.CreatedAt),
+		"livemode":       false,
+	})
 }
 
 func stripeChargeFromRefund(refund billing.Refund) map[string]any {

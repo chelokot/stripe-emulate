@@ -129,14 +129,18 @@ type CheckoutSession struct {
 	PaymentIntentDescription string            `json:"-"`
 	ReceiptEmail             string            `json:"-"`
 	CaptureMethod            string            `json:"-"`
-	URL                      string            `json:"url"`
-	Status                   string            `json:"status"`
-	PaymentStatus            string            `json:"payment_status"`
-	SubscriptionID           string            `json:"subscription,omitempty"`
-	InvoiceID                string            `json:"invoice,omitempty"`
-	PaymentIntentID          string            `json:"payment_intent,omitempty"`
-	CreatedAt                time.Time         `json:"created_at"`
-	CompletedAt              *time.Time        `json:"completed_at,omitempty"`
+	// invoice_creation (payment mode): a paid Invoice is created on completion.
+	// InvoiceMetadata is invoice_creation[invoice_data][metadata] only.
+	InvoiceCreation bool              `json:"-"`
+	InvoiceMetadata map[string]string `json:"-"`
+	URL             string            `json:"url"`
+	Status          string            `json:"status"`
+	PaymentStatus   string            `json:"payment_status"`
+	SubscriptionID  string            `json:"subscription,omitempty"`
+	InvoiceID       string            `json:"invoice,omitempty"`
+	PaymentIntentID string            `json:"payment_intent,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
+	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
 }
 
 // AppliedTaxRate is a creation-time snapshot of a tax rate applied to billing math.
@@ -199,7 +203,15 @@ type InvoiceItem struct {
 	ProductID      string            `json:"product,omitempty"`
 	Quantity       int64             `json:"quantity,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
+	// tax_rates_snapshot avoids collision with Stripe's tax_rates array of TaxRate objects.
+	TaxRates []AppliedTaxRate `json:"tax_rates_snapshot,omitempty"`
+	// Line details for subscription-generated lines; zero periods mean
+	// "use the item's created time" (one-off invoice items).
+	SubscriptionItemID string    `json:"subscription_item,omitempty"`
+	Proration          bool      `json:"proration,omitempty"`
+	PeriodStart        time.Time `json:"period_start,omitempty"`
+	PeriodEnd          time.Time `json:"period_end,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type InvoicePaymentOptions struct {
@@ -447,6 +459,8 @@ type PortalSeatChange struct {
 
 type PortalCancel struct {
 	Mode string `json:"mode"`
+	// Metadata is merged onto the subscription (e.g. cancellation_details_*).
+	Metadata map[string]string `json:"-"`
 }
 
 type PaymentMethodSimulation struct {

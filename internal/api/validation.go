@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,6 +31,8 @@ var (
 	// payment_intent_data for payment-mode sessions (nested metadata keys unexpanded by firstValues).
 	checkoutPaymentIntentDataRE = regexp.MustCompile(`^payment_intent_data\[(setup_future_usage|description|receipt_email|capture_method)\]$`)
 	checkoutPaymentIntentMetaRE = regexp.MustCompile(`^payment_intent_data\[metadata\]\[[^\]]+\]$`)
+	checkoutLineTaxRatesRE      = regexp.MustCompile(`^line_items\[\d+\]\[tax_rates\](\[\d*\])?$`)
+	checkoutInvoiceDataRE       = regexp.MustCompile(`^invoice_creation\[invoice_data\](\[(description|footer)\]|\[metadata\]\[[^\]]+\])$`)
 	// Accept trial_period_days and default_tax_rates in [] / [N] forms
 	// (firstValues leaves single-value [] keys unexpanded).
 	checkoutSubscriptionDataRE = regexp.MustCompile(`^subscription_data\[(trial_period_days|default_tax_rates)\](\[\d*\])?$`)
@@ -192,6 +195,18 @@ func unknownParam(param string) *validationError {
 	}
 }
 
+// unknownParams reports sorted keys: param stays the first one (as Stripe), the
+// message names every unknown key so a stub user sees the whole gap at once.
+func unknownParams(keys []string) *validationError {
+	sort.Strings(keys)
+	if len(keys) == 1 {
+		return unknownParam(keys[0])
+	}
+	err := unknownParam(keys[0])
+	err.Message = fmt.Sprintf("Received unknown parameters: %s.", strings.Join(keys, ", "))
+	return err
+}
+
 func invalidParam(param string, reason string) *validationError {
 	return &validationError{
 		Param:   param,
@@ -228,6 +243,7 @@ func (p params) validate(spec paramSpec) error {
 		allowed[key] = struct{}{}
 	}
 
+	var unknown []string
 	for key := range p.values {
 		if _, ok := allowed[key]; ok {
 			continue
@@ -246,8 +262,11 @@ func (p params) validate(spec paramSpec) error {
 			}
 		}
 		if !matched {
-			return unknownParam(key)
+			unknown = append(unknown, key)
 		}
+	}
+	if len(unknown) > 0 {
+		return unknownParams(unknown)
 	}
 
 	for _, key := range spec.Required {
@@ -745,6 +764,7 @@ func validateCheckoutSessionCreate(p params) error {
 			"automatic_tax[enabled]",
 			"tax_id_collection[enabled]",
 			"client_reference_id",
+			"invoice_creation[enabled]",
 		},
 		AllowedRegex: []*regexp.Regexp{
 			checkoutLineItemRE,
@@ -756,12 +776,14 @@ func validateCheckoutSessionCreate(p params) error {
 			checkoutPaymentIntentDataRE,
 			checkoutPaymentIntentMetaRE,
 			checkoutSubscriptionDataRE,
+			checkoutInvoiceDataRE,
+			checkoutLineTaxRatesRE,
 			discountParamRE,
 		},
 		RequiredAny:   [][]string{{"customer", "customer_id"}},
 		AllowMetadata: true,
 		Int64Params:   []string{"subscription_data[trial_period_days]"},
-		BoolParams:    []string{"allow_promotion_codes", "automatic_tax[enabled]", "tax_id_collection[enabled]"},
+		BoolParams:    []string{"allow_promotion_codes", "automatic_tax[enabled]", "tax_id_collection[enabled]", "invoice_creation[enabled]"},
 		EnumParams: map[string][]string{
 			"mode": {"subscription", "payment"},
 			"payment_intent_data[setup_future_usage]": {"off_session", "on_session"},
@@ -783,6 +805,9 @@ func validateCheckoutSessionCreate(p params) error {
 	lineItemIndexes := p.lineItemIndexes()
 	if len(lineItemIndexes) == 0 && !p.has("price") {
 		return missingParam("line_items")
+	}
+	if _, err := p.checkoutLineTaxRateIDs(mode); err != nil {
+		return err
 	}
 	for idx := range lineItemIndexes {
 		quantityKey := fmt.Sprintf("line_items[%d][quantity]", idx)
@@ -817,9 +842,51 @@ func validateCheckoutSessionCreate(p params) error {
 	return nil
 }
 
+// checkoutLineTaxRateIDs returns the line_items[n][tax_rates] set. Payment mode
+// only, and every line must carry the same set: Billtap taxes the session total
+// with one rate set (the DefaultTaxRates math), so mixed per-line rates are refused
+// rather than mis-totaled.
+// ponytail: uniform rates only; per-line tax amounts if a client mixes rates.
+func (p params) checkoutLineTaxRateIDs(mode string) ([]string, error) {
+	indexes := make([]int, 0)
+	for idx := range p.lineItemIndexes() {
+		indexes = append(indexes, idx)
+	}
+	sort.Ints(indexes)
+	var first []string
+	hasAny := false
+	for n, idx := range indexes {
+		key := fmt.Sprintf("line_items[%d][tax_rates]", idx)
+		has := p.hasDefaultTaxRatesParam(key)
+		if has && mode != "payment" {
+			return nil, unknownParam(key)
+		}
+		if has {
+			if err := validateDefaultTaxRatesVsAutomaticTax(p, key, p.boolDefault("automatic_tax[enabled]", false)); err != nil {
+				return nil, err
+			}
+		}
+		ids := p.defaultTaxRateIDs(key)
+		sort.Strings(ids)
+		hasAny = hasAny || len(ids) > 0
+		if n == 0 {
+			first = ids
+			continue
+		}
+		if strings.Join(ids, ",") != strings.Join(first, ",") {
+			return nil, invalidParam(key, "Billtap supports line_items[].tax_rates only when every line item uses the same tax rates.")
+		}
+	}
+	if !hasAny {
+		return nil, nil
+	}
+	return first, nil
+}
+
 func validateCheckoutModeCrossParams(p params, mode string) error {
 	hasPaymentIntentData := false
 	hasSubscriptionData := false
+	hasInvoiceCreation := false
 	for key := range p.values {
 		if strings.HasPrefix(key, "payment_intent_data[") {
 			hasPaymentIntentData = true
@@ -827,6 +894,15 @@ func validateCheckoutModeCrossParams(p params, mode string) error {
 		if strings.HasPrefix(key, "subscription_data[") {
 			hasSubscriptionData = true
 		}
+		if strings.HasPrefix(key, "invoice_creation[") {
+			hasInvoiceCreation = true
+		}
+	}
+	if hasInvoiceCreation && !p.has("invoice_creation[enabled]") {
+		return missingParam("invoice_creation[enabled]")
+	}
+	if mode == "subscription" && hasInvoiceCreation {
+		return invalidParam("invoice_creation", "You can only use invoice_creation in payment mode.")
 	}
 	if mode == "subscription" && hasPaymentIntentData {
 		return invalidParam("payment_intent_data", "You cannot use payment_intent_data in subscription mode.")
@@ -1200,6 +1276,7 @@ func validateInvoiceItemCreate(p params) error {
 			"pricing[price]",
 			"quantity",
 		},
+		AllowedRegex:  []*regexp.Regexp{taxRatesParamRE},
 		Required:      []string{"customer"},
 		Int64Params:   []string{"amount", "quantity"},
 		NonNegative:   []string{"quantity"},
@@ -1222,9 +1299,6 @@ func validateInvoiceItemCreate(p params) error {
 	if hasAmount {
 		if !p.has("currency") {
 			return missingParam("currency")
-		}
-		if p.int64("amount") == 0 {
-			return invalidParam("amount", "Must be non-zero.")
 		}
 	}
 	return nil
