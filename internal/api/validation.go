@@ -1300,9 +1300,6 @@ func validateInvoiceItemCreate(p params) error {
 		if !p.has("currency") {
 			return missingParam("currency")
 		}
-		if p.int64("amount") == 0 {
-			return invalidParam("amount", "Must be non-zero.")
-		}
 	}
 	return nil
 }

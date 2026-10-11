@@ -1275,9 +1275,6 @@ func (s *Service) ListInvoices(ctx context.Context) ([]Invoice, error) {
 }
 
 func (s *Service) CreateInvoiceItem(ctx context.Context, in InvoiceItem) (InvoiceItem, Invoice, error) {
-	if in.Amount == 0 {
-		return InvoiceItem{}, Invoice{}, fmt.Errorf("%w: amount is required", ErrInvalidInput)
-	}
 	in.InvoiceID = strings.TrimSpace(in.InvoiceID)
 	in.SubscriptionID = strings.TrimSpace(in.SubscriptionID)
 	var invoice Invoice
@@ -1604,6 +1601,15 @@ func (s *Service) PayInvoice(ctx context.Context, invoiceID string, opts Invoice
 	}
 	if invoice.SubscriptionID == "" {
 		return s.payManualInvoice(ctx, invoice, opts, at)
+	}
+	// Stripe finalizes a draft when it is paid. A subscription invoice created
+	// through POST /v1/invoices has no PaymentIntent until then.
+	if invoice.Status == "draft" {
+		finalized, err := s.FinalizeInvoice(ctx, invoice.ID)
+		if err != nil {
+			return InvoicePaymentResult{}, err
+		}
+		invoice = finalized.Invoice
 	}
 	subscription, err := s.repo.GetSubscription(ctx, invoice.SubscriptionID)
 	if err != nil {

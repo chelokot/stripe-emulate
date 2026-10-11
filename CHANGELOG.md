@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `POST /v1/invoiceitems` accepts `amount=0` (and 0-cost prices), as Stripe
+  does. Paying a draft subscription invoice created through `POST /v1/invoices`
+  finalizes it first instead of failing with `resource_missing`, including
+  `paid_out_of_band`.
 - Subscription invoices now store their lines: checkout/create bills each
   subscription item for its period, renewals bill the new period (plus one net
   line for accumulated `create_prorations`), and `always_invoice` updates store
