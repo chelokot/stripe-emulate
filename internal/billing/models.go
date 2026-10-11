@@ -129,14 +129,18 @@ type CheckoutSession struct {
 	PaymentIntentDescription string            `json:"-"`
 	ReceiptEmail             string            `json:"-"`
 	CaptureMethod            string            `json:"-"`
-	URL                      string            `json:"url"`
-	Status                   string            `json:"status"`
-	PaymentStatus            string            `json:"payment_status"`
-	SubscriptionID           string            `json:"subscription,omitempty"`
-	InvoiceID                string            `json:"invoice,omitempty"`
-	PaymentIntentID          string            `json:"payment_intent,omitempty"`
-	CreatedAt                time.Time         `json:"created_at"`
-	CompletedAt              *time.Time        `json:"completed_at,omitempty"`
+	// invoice_creation (payment mode): a paid Invoice is created on completion.
+	// InvoiceMetadata is invoice_creation[invoice_data][metadata] only.
+	InvoiceCreation bool              `json:"-"`
+	InvoiceMetadata map[string]string `json:"-"`
+	URL             string            `json:"url"`
+	Status          string            `json:"status"`
+	PaymentStatus   string            `json:"payment_status"`
+	SubscriptionID  string            `json:"subscription,omitempty"`
+	InvoiceID       string            `json:"invoice,omitempty"`
+	PaymentIntentID string            `json:"payment_intent,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
+	CompletedAt     *time.Time        `json:"completed_at,omitempty"`
 }
 
 // AppliedTaxRate is a creation-time snapshot of a tax rate applied to billing math.

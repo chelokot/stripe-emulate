@@ -30,6 +30,7 @@ var (
 	// payment_intent_data for payment-mode sessions (nested metadata keys unexpanded by firstValues).
 	checkoutPaymentIntentDataRE = regexp.MustCompile(`^payment_intent_data\[(setup_future_usage|description|receipt_email|capture_method)\]$`)
 	checkoutPaymentIntentMetaRE = regexp.MustCompile(`^payment_intent_data\[metadata\]\[[^\]]+\]$`)
+	checkoutInvoiceDataRE       = regexp.MustCompile(`^invoice_creation\[invoice_data\](\[(description|footer)\]|\[metadata\]\[[^\]]+\])$`)
 	// Accept trial_period_days and default_tax_rates in [] / [N] forms
 	// (firstValues leaves single-value [] keys unexpanded).
 	checkoutSubscriptionDataRE = regexp.MustCompile(`^subscription_data\[(trial_period_days|default_tax_rates)\](\[\d*\])?$`)
@@ -745,6 +746,7 @@ func validateCheckoutSessionCreate(p params) error {
 			"automatic_tax[enabled]",
 			"tax_id_collection[enabled]",
 			"client_reference_id",
+			"invoice_creation[enabled]",
 		},
 		AllowedRegex: []*regexp.Regexp{
 			checkoutLineItemRE,
@@ -756,12 +758,13 @@ func validateCheckoutSessionCreate(p params) error {
 			checkoutPaymentIntentDataRE,
 			checkoutPaymentIntentMetaRE,
 			checkoutSubscriptionDataRE,
+			checkoutInvoiceDataRE,
 			discountParamRE,
 		},
 		RequiredAny:   [][]string{{"customer", "customer_id"}},
 		AllowMetadata: true,
 		Int64Params:   []string{"subscription_data[trial_period_days]"},
-		BoolParams:    []string{"allow_promotion_codes", "automatic_tax[enabled]", "tax_id_collection[enabled]"},
+		BoolParams:    []string{"allow_promotion_codes", "automatic_tax[enabled]", "tax_id_collection[enabled]", "invoice_creation[enabled]"},
 		EnumParams: map[string][]string{
 			"mode": {"subscription", "payment"},
 			"payment_intent_data[setup_future_usage]": {"off_session", "on_session"},
@@ -820,6 +823,7 @@ func validateCheckoutSessionCreate(p params) error {
 func validateCheckoutModeCrossParams(p params, mode string) error {
 	hasPaymentIntentData := false
 	hasSubscriptionData := false
+	hasInvoiceCreation := false
 	for key := range p.values {
 		if strings.HasPrefix(key, "payment_intent_data[") {
 			hasPaymentIntentData = true
@@ -827,6 +831,15 @@ func validateCheckoutModeCrossParams(p params, mode string) error {
 		if strings.HasPrefix(key, "subscription_data[") {
 			hasSubscriptionData = true
 		}
+		if strings.HasPrefix(key, "invoice_creation[") {
+			hasInvoiceCreation = true
+		}
+	}
+	if hasInvoiceCreation && !p.has("invoice_creation[enabled]") {
+		return missingParam("invoice_creation[enabled]")
+	}
+	if mode == "subscription" && hasInvoiceCreation {
+		return invalidParam("invoice_creation", "You can only use invoice_creation in payment mode.")
 	}
 	if mode == "subscription" && hasPaymentIntentData {
 		return invalidParam("payment_intent_data", "You cannot use payment_intent_data in subscription mode.")

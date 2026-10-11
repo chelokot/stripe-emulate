@@ -581,7 +581,7 @@ func (s *Service) completeCheckout(ctx context.Context, sessionID string, outcom
 	discountedTotal, discountAmount := ApplyDiscountsWithEligibleBase(subtotal, eligibleBase, currency, discounts)
 
 	if session.Mode == "payment" {
-		return s.completePaymentCheckout(ctx, session, outcomeSpec, opts, currency, subtotal, discountedTotal, discountAmount, now)
+		return s.completePaymentCheckout(ctx, session, outcomeSpec, opts, currency, subtotal, discountedTotal, discountAmount, lineAmounts, now)
 	}
 
 	periodEnd := now.AddDate(0, 1, 0)
@@ -701,8 +701,9 @@ func (s *Service) completeCheckout(ctx context.Context, sessionID string, outcom
 	})
 }
 
-// completePaymentCheckout finishes a mode=payment checkout: no subscription/invoice;
+// completePaymentCheckout finishes a mode=payment checkout: no subscription;
 // one PaymentIntent for the discounted (and taxed) total. Free totals skip the PI.
+// invoice_creation[enabled] adds a paid manual Invoice linked to that PI.
 func (s *Service) completePaymentCheckout(
 	ctx context.Context,
 	session CheckoutSession,
@@ -711,17 +712,20 @@ func (s *Service) completePaymentCheckout(
 	currency string,
 	subtotal int64,
 	discountedTotal int64,
-	_ int64,
+	discountAmount int64,
+	lineAmounts []LineAmount,
 	now time.Time,
 ) (CheckoutSession, error) {
 	total := discountedTotal
+	tax := int64(0)
 	if len(session.DefaultTaxRates) > 0 {
-		_, _, exclusiveTotal, _ := ComputeTaxRateAmounts(discountedTotal, session.DefaultTaxRates)
+		_, _, exclusiveTotal, taxTotal := ComputeTaxRateAmounts(discountedTotal, session.DefaultTaxRates)
 		total = discountedTotal + exclusiveTotal
+		tax = taxTotal
 	} else if session.AutomaticTax {
-		total = discountedTotal + ExclusiveTaxAmount(discountedTotal, session.TaxPercent)
+		tax = ExclusiveTaxAmount(discountedTotal, session.TaxPercent)
+		total = discountedTotal + tax
 	}
-	_ = subtotal
 
 	paymentStatus := outcomeSpec.PaymentStatus
 	sessionStatus := firstNonEmpty(outcomeSpec.SessionStatus, "complete")
@@ -783,7 +787,7 @@ func (s *Service) completePaymentCheckout(
 		intent.FailureMessage = outcomeSpec.FailureMessage
 	}
 
-	return s.repo.RecordCheckoutCompletion(ctx, CheckoutCompletion{
+	completion := CheckoutCompletion{
 		SessionID:     session.ID,
 		SessionStatus: sessionStatus,
 		PaymentStatus: paymentStatus,
@@ -791,7 +795,51 @@ func (s *Service) completePaymentCheckout(
 		Outcome:       outcomeSpec.Outcome,
 		CompletedAt:   now,
 		PaymentIntent: intent,
-	})
+	}
+	// Stripe creates the invoice only after a successful payment. The PI keeps
+	// invoice=null (as in Stripe); the link is invoice.payments -> PI.
+	if session.InvoiceCreation && paid {
+		completion.Invoice = Invoice{
+			ID:              firstNonEmpty(opts.InvoiceID, id("in")),
+			Object:          ObjectInvoice,
+			CustomerID:      session.CustomerID,
+			Status:          "paid",
+			Currency:        currency,
+			Subtotal:        subtotal,
+			DiscountAmount:  discountAmount,
+			Discounts:       normalizeDiscounts(session.Discounts, now),
+			AutomaticTax:    session.AutomaticTax,
+			DefaultTaxRates: session.DefaultTaxRates,
+			Tax:             tax,
+			Total:           total,
+			AmountPaid:      total,
+			AttemptCount:    1,
+			PaymentIntentID: intent.ID,
+			Metadata:        copyMap(session.InvoiceMetadata),
+			CreatedAt:       now,
+		}
+		for idx, item := range session.LineItems {
+			line := InvoiceItem{
+				ID:         id("ii"),
+				Object:     ObjectInvoiceItem,
+				CustomerID: session.CustomerID,
+				InvoiceID:  completion.Invoice.ID,
+				Currency:   currency,
+				PriceID:    item.PriceID,
+				Quantity:   item.Quantity,
+				CreatedAt:  now,
+			}
+			if idx < len(lineAmounts) {
+				line.Amount = lineAmounts[idx].Amount
+				line.ProductID = lineAmounts[idx].ProductID
+			}
+			if product, err := s.repo.GetProduct(ctx, line.ProductID); err == nil {
+				line.Description = product.Name
+			}
+			completion.InvoiceItems = append(completion.InvoiceItems, line)
+		}
+	}
+	return s.repo.RecordCheckoutCompletion(ctx, completion)
 }
 
 func (s *Service) GetSubscription(ctx context.Context, id string) (Subscription, error) {
@@ -3793,6 +3841,7 @@ type CheckoutCompletion struct {
 	CompletedAt   time.Time
 	Subscription  Subscription
 	Invoice       Invoice
+	InvoiceItems  []InvoiceItem
 	PaymentIntent PaymentIntent
 }
 

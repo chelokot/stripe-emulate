@@ -1665,6 +1665,9 @@ func (h *Handler) handleCheckoutSessions(w http.ResponseWriter, r *http.Request)
 			PaymentIntentDescription: p.string("payment_intent_data[description]"),
 			ReceiptEmail:             p.string("payment_intent_data[receipt_email]"),
 			CaptureMethod:            p.string("payment_intent_data[capture_method]"),
+			// invoice_data[description|footer] are accepted but not modeled.
+			InvoiceCreation: p.boolDefault("invoice_creation[enabled]", false),
+			InvoiceMetadata: p.prefixedMetadata("invoice_creation[invoice_data][metadata]["),
 		})
 		if err == nil {
 			session.URL = h.absoluteURL(r, session.URL)
@@ -6822,8 +6825,11 @@ func (p params) lineItems() []billing.LineItem {
 }
 
 func (p params) paymentIntentDataMetadata() map[string]string {
+	return p.prefixedMetadata("payment_intent_data[metadata][")
+}
+
+func (p params) prefixedMetadata(prefix string) map[string]string {
 	out := map[string]string{}
-	prefix := "payment_intent_data[metadata]["
 	for key, value := range p.values {
 		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, "]") {
 			continue
@@ -7841,6 +7847,26 @@ func (h *Handler) stripeCheckoutSession(r *http.Request, session billing.Checkou
 		"tax_id_collection": map[string]any{
 			"enabled":  session.TaxIDCollection,
 			"required": "never",
+		},
+		"invoice_creation": stripeCheckoutInvoiceCreation(session),
+	}
+}
+
+// Stripe returns invoice_creation only for payment mode (null otherwise).
+func stripeCheckoutInvoiceCreation(session billing.CheckoutSession) any {
+	if session.Mode != "payment" {
+		return nil
+	}
+	return map[string]any{
+		"enabled": session.InvoiceCreation,
+		"invoice_data": map[string]any{
+			"account_tax_ids":   nil,
+			"custom_fields":     nil,
+			"description":       nil,
+			"footer":            nil,
+			"issuer":            nil,
+			"metadata":          nonNilMap(session.InvoiceMetadata),
+			"rendering_options": nil,
 		},
 	}
 }

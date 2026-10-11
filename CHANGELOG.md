@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `POST /v1/checkout/sessions` accepts `invoice_creation[enabled]` and
+  `invoice_creation[invoice_data][description|footer|metadata][...]` in payment
+  mode. A paid completion creates a `paid` manual Invoice (lines from the
+  session line items, `metadata` from `invoice_data.metadata` only) whose
+  `payments` points at the session PaymentIntent, sets `session.invoice`, and
+  emits `invoice.created` / `invoice.finalized` / `invoice.payment_succeeded` /
+  `invoice.paid` alongside the checkout and PaymentIntent events.
 - `DELETE /v1/test_helpers/test_clocks/{id}` removes a test clock and detaches
   it from the customers and subscriptions that referenced it (Stripe deletes
   attached objects; Billtap keeps them detached so fixture packs can re-seed

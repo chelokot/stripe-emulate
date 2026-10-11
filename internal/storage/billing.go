@@ -562,6 +562,13 @@ func (s *SQLiteStore) RecordCheckoutCompletion(ctx context.Context, c billing.Ch
 			return billing.CheckoutSession{}, err
 		}
 	}
+	for _, item := range c.InvoiceItems {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO invoice_items (`+invoiceItemColumns+`)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID); err != nil {
+			return billing.CheckoutSession{}, err
+		}
+	}
 	if c.PaymentIntent.ID != "" {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO payment_intents (id, customer_id, invoice_id, amount, currency, status, capture_method, failure_code, failure_decline_code, failure_message, payment_method_id, metadata, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1806,6 +1813,10 @@ type paymentIntentDataSnapshot struct {
 	Description      string            `json:"description,omitempty"`
 	ReceiptEmail     string            `json:"receipt_email,omitempty"`
 	CaptureMethod    string            `json:"capture_method,omitempty"`
+	// ponytail: invoice_creation rides in this JSON column to avoid a schema
+	// migration; give it its own column if more session-level options land here.
+	InvoiceCreation bool              `json:"invoice_creation,omitempty"`
+	InvoiceMetadata map[string]string `json:"invoice_metadata,omitempty"`
 }
 
 func encodePaymentIntentData(cs billing.CheckoutSession) string {
@@ -1815,8 +1826,10 @@ func encodePaymentIntentData(cs billing.CheckoutSession) string {
 		Description:      cs.PaymentIntentDescription,
 		ReceiptEmail:     cs.ReceiptEmail,
 		CaptureMethod:    cs.CaptureMethod,
+		InvoiceCreation:  cs.InvoiceCreation,
+		InvoiceMetadata:  cs.InvoiceMetadata,
 	}
-	if len(snap.Metadata) == 0 && snap.SetupFutureUsage == "" && snap.Description == "" && snap.ReceiptEmail == "" && snap.CaptureMethod == "" {
+	if len(snap.Metadata) == 0 && snap.SetupFutureUsage == "" && snap.Description == "" && snap.ReceiptEmail == "" && snap.CaptureMethod == "" && !snap.InvoiceCreation {
 		return "{}"
 	}
 	b, err := json.Marshal(snap)
@@ -1839,6 +1852,8 @@ func applyPaymentIntentData(cs *billing.CheckoutSession, raw string) {
 	cs.PaymentIntentDescription = snap.Description
 	cs.ReceiptEmail = snap.ReceiptEmail
 	cs.CaptureMethod = snap.CaptureMethod
+	cs.InvoiceCreation = snap.InvoiceCreation
+	cs.InvoiceMetadata = snap.InvoiceMetadata
 }
 
 func scanSubscription(row scanner) (billing.Subscription, error) {
