@@ -893,6 +893,10 @@ func (h *Handler) handleDisputeSimulation(w http.ResponseWriter, r *http.Request
 func (h *Handler) handleChargeSubresource(w http.ResponseWriter, r *http.Request) {
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v1/charges/"), "/")
 	chargeID, action, found := strings.Cut(rest, "/")
+	if chargeID != "" && !found {
+		h.handleCharge(w, r, chargeID)
+		return
+	}
 	if chargeID == "" || !found || action != "dispute" {
 		h.notFound(w, r)
 		return

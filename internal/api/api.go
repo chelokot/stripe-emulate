@@ -8342,6 +8342,7 @@ func stripeInvoicePaymentRecords(invoice billing.Invoice, intent *billing.Paymen
 	payment := map[string]any{
 		"id":             "py_" + sanitizeID(invoice.PaymentIntentID),
 		"object":         "payment",
+		"type":           "payment_intent",
 		"payment_intent": paymentIntent,
 		"status":         status,
 	}
@@ -8557,6 +8558,7 @@ func stripePaymentIntent(intent billing.PaymentIntent) map[string]any {
 		"receipt_email":      emptyToNil(intent.Metadata["billtap_receipt_email"]),
 		"setup_future_usage": emptyToNil(intent.Metadata["billtap_setup_future_usage"]),
 		"payment_method":     emptyToNil(intent.PaymentMethodID),
+		"latest_charge":      emptyToNil(paymentIntentChargeID(intent)),
 		"metadata":           nonNilMap(intent.Metadata),
 		"last_payment_error": paymentIntentError(intent),
 		"next_action":        paymentIntentNextAction(intent),
@@ -8639,6 +8641,77 @@ func stripeRefund(refund billing.Refund) map[string]any {
 		"created":        unix(refund.CreatedAt),
 		"livemode":       false,
 	}
+}
+
+// paymentIntentChargeID is the charge a PaymentIntent produced; Billtap names it
+// after the PI (as refunds already do), so no charges table is needed.
+func paymentIntentChargeID(intent billing.PaymentIntent) string {
+	switch intent.Status {
+	case "succeeded", "requires_capture":
+		return "ch_" + intent.ID
+	}
+	return ""
+}
+
+// handleCharge serves GET /v1/charges/{id} for PaymentIntent charges, with the
+// balance_transaction always expanded (Billtap pre-expands instead of honoring expand[]).
+func (h *Handler) handleCharge(w http.ResponseWriter, r *http.Request, chargeID string) {
+	if r.Method != http.MethodGet {
+		h.methodNotAllowed(w, r, "GET")
+		return
+	}
+	intent, err := h.billing.GetPaymentIntent(r.Context(), strings.TrimPrefix(chargeID, "ch_"))
+	if err != nil || paymentIntentChargeID(intent) != chargeID {
+		writeResult(w, nil, billing.ErrNotFound)
+		return
+	}
+	refunds, _ := h.billing.ListRefunds(r.Context(), billing.RefundFilter{ChargeID: chargeID})
+	refunded := int64(0)
+	refundData := make([]map[string]any, 0, len(refunds))
+	for _, refund := range refunds {
+		if refund.Status != "failed" && refund.Status != "canceled" {
+			refunded += refund.Amount
+		}
+		refundData = append(refundData, stripeRefund(refund))
+	}
+	captured := intent.Status == "succeeded"
+	amountCaptured := int64(0)
+	if captured {
+		amountCaptured = intent.Amount
+	}
+	// ponytail: fixed simulated 2.9% + 30 fee; make it configurable if a test asserts real pricing.
+	fee := intent.Amount*29/1000 + 30
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":              chargeID,
+		"object":          "charge",
+		"amount":          intent.Amount,
+		"amount_captured": amountCaptured,
+		"amount_refunded": refunded,
+		"balance_transaction": map[string]any{
+			"id":       "txn_" + intent.ID,
+			"object":   "balance_transaction",
+			"amount":   amountCaptured,
+			"fee":      fee,
+			"net":      amountCaptured - fee,
+			"currency": intent.Currency,
+			"source":   chargeID,
+			"status":   "available",
+			"type":     "charge",
+			"created":  unix(intent.CreatedAt),
+		},
+		"captured":       captured,
+		"currency":       intent.Currency,
+		"customer":       emptyToNil(intent.CustomerID),
+		"payment_intent": intent.ID,
+		"payment_method": emptyToNil(intent.PaymentMethodID),
+		"paid":           true,
+		"refunded":       refunded > 0 && refunded >= intent.Amount,
+		"refunds":        stripeList("/v1/refunds?charge="+url.QueryEscape(chargeID), refundData),
+		"status":         "succeeded",
+		"metadata":       nonNilMap(intent.Metadata),
+		"created":        unix(intent.CreatedAt),
+		"livemode":       false,
+	})
 }
 
 func stripeChargeFromRefund(refund billing.Refund) map[string]any {

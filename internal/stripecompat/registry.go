@@ -348,6 +348,7 @@ func DefaultClaims() []Claim {
 	add(http.MethodGet, "/v1/disputes/{id}", Claim{Level: "L2", Stateful: true})
 	add(http.MethodPost, "/v1/disputes/{id}", Claim{Level: "L2", Stateful: true, WebhookEvents: []string{"charge.dispute.updated"}})
 	add(http.MethodPost, "/v1/disputes/{id}/close", Claim{Level: "L2", Stateful: true, WebhookEvents: []string{"charge.dispute.closed"}})
+	add(http.MethodGet, "/v1/charges/{id}", Claim{Level: "L2", Stateful: true, Risks: []string{"PaymentIntent charges only (ch_<pi id>); balance_transaction is always expanded with a simulated 2.9% + 30 fee"}})
 	add(http.MethodGet, "/v1/charges/{id}/dispute", Claim{Level: "L2", Stateful: true})
 	add(http.MethodPost, "/v1/charges/{id}/dispute", Claim{Level: "L2", Stateful: true, WebhookEvents: []string{"charge.dispute.created"}})
 
