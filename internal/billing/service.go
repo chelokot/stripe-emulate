@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1317,6 +1318,9 @@ func (s *Service) CreateInvoiceItem(ctx context.Context, in InvoiceItem) (Invoic
 		in.CreatedAt = now
 	}
 	if invoice.ID != "" {
+		if err := adoptInvoiceItemTaxRates(&invoice, in.TaxRates); err != nil {
+			return InvoiceItem{}, Invoice{}, err
+		}
 		addInvoiceItemAmount(&invoice, in.Amount, in.Currency)
 	}
 	createdItem, updatedInvoice, err := s.repo.CreateInvoiceItem(ctx, in, invoice, []TimelineEntry{billingTimelineEntry(
@@ -1349,6 +1353,9 @@ func (s *Service) attachPendingInvoiceItems(ctx context.Context, invoice Invoice
 		if item.Currency != "" && item.Currency != invoice.Currency {
 			continue
 		}
+		if err := adoptInvoiceItemTaxRates(&invoice, item.TaxRates); err != nil {
+			return Invoice{}, err
+		}
 		itemIDs = append(itemIDs, item.ID)
 		addInvoiceItemAmount(&invoice, item.Amount, item.Currency)
 	}
@@ -1377,6 +1384,15 @@ func addInvoiceItemAmount(invoice *Invoice, amount int64, currency string) {
 	}
 	invoice.Subtotal += amount
 	invoice.Total += amount
+	if len(invoice.DefaultTaxRates) > 0 {
+		base := invoice.Subtotal - invoice.DiscountAmount
+		if base < 0 {
+			base = 0
+		}
+		_, _, exclusiveTotal, taxTotal := ComputeTaxRateAmounts(base, invoice.DefaultTaxRates)
+		invoice.Tax = taxTotal
+		invoice.Total = base + exclusiveTotal
+	}
 	if invoice.Total < 0 {
 		invoice.Total = 0
 	}
@@ -1385,6 +1401,37 @@ func addInvoiceItemAmount(invoice *Invoice, amount int64, currency string) {
 		invoice.AmountDue = 0
 	}
 	invoice.Currency = firstNonEmpty(invoice.Currency, currency)
+}
+
+// adoptInvoiceItemTaxRates folds an item's tax_rates into the invoice's single
+// rate set. An untaxed invoice with no lines yet adopts the item's rates; an
+// item without rates follows the invoice rates (Stripe default_tax_rates);
+// any other mix is refused rather than mis-totaled.
+// ponytail: one rate set per invoice; per-line tax amounts if clients mix rates.
+func adoptInvoiceItemTaxRates(invoice *Invoice, rates []AppliedTaxRate) error {
+	if invoice == nil || len(rates) == 0 {
+		return nil
+	}
+	if len(invoice.DefaultTaxRates) == 0 && invoice.Subtotal == 0 {
+		invoice.DefaultTaxRates = rates
+		return nil
+	}
+	if !sameTaxRateIDs(invoice.DefaultTaxRates, rates) {
+		return fmt.Errorf("%w: Billtap supports invoice item tax_rates only when every line on the invoice uses the same tax rates", ErrInvalidInput)
+	}
+	return nil
+}
+
+func sameTaxRateIDs(a, b []AppliedTaxRate) bool {
+	ids := func(rates []AppliedTaxRate) string {
+		out := make([]string, 0, len(rates))
+		for _, rate := range rates {
+			out = append(out, rate.ID)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+	return ids(a) == ids(b)
 }
 
 func (s *Service) ListInvoiceItems(ctx context.Context, filter InvoiceItemFilter) ([]InvoiceItem, error) {

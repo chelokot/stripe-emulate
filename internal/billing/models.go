@@ -203,7 +203,9 @@ type InvoiceItem struct {
 	ProductID      string            `json:"product,omitempty"`
 	Quantity       int64             `json:"quantity,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
+	// tax_rates_snapshot avoids collision with Stripe's tax_rates array of TaxRate objects.
+	TaxRates  []AppliedTaxRate `json:"tax_rates_snapshot,omitempty"`
+	CreatedAt time.Time        `json:"created_at"`
 }
 
 type InvoicePaymentOptions struct {

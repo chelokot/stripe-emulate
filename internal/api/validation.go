@@ -1276,6 +1276,7 @@ func validateInvoiceItemCreate(p params) error {
 			"pricing[price]",
 			"quantity",
 		},
+		AllowedRegex:  []*regexp.Regexp{taxRatesParamRE},
 		Required:      []string{"customer"},
 		Int64Params:   []string{"amount", "quantity"},
 		NonNegative:   []string{"quantity"},

@@ -11,7 +11,7 @@ import (
 	"github.com/midagedev/billtap/internal/billing"
 )
 
-const invoiceItemColumns = `id, customer_id, invoice_id, amount, currency, description, metadata, created_at, price_id, product_id, quantity, subscription_id`
+const invoiceItemColumns = `id, customer_id, invoice_id, amount, currency, description, metadata, created_at, price_id, product_id, quantity, subscription_id, tax_rates`
 
 var _ billing.Repository = (*SQLiteStore)(nil)
 
@@ -564,8 +564,8 @@ func (s *SQLiteStore) RecordCheckoutCompletion(ctx context.Context, c billing.Ch
 	}
 	for _, item := range c.InvoiceItems {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO invoice_items (`+invoiceItemColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID); err != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID, encodeAppliedTaxRates(item.TaxRates)); err != nil {
 			return billing.CheckoutSession{}, err
 		}
 	}
@@ -885,8 +885,8 @@ func (s *SQLiteStore) CreateInvoiceItem(ctx context.Context, item billing.Invoic
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO invoice_items (`+invoiceItemColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID); err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.ID, item.CustomerID, encodeOptionalString(item.InvoiceID), item.Amount, item.Currency, item.Description, encodeMap(item.Metadata), encodeTime(item.CreatedAt), item.PriceID, item.ProductID, item.Quantity, item.SubscriptionID, encodeAppliedTaxRates(item.TaxRates)); err != nil {
 		return billing.InvoiceItem{}, billing.Invoice{}, err
 	}
 	if invoice.ID != "" {
@@ -1903,10 +1903,11 @@ func scanInvoice(row scanner) (billing.Invoice, error) {
 func scanInvoiceItem(row scanner) (billing.InvoiceItem, error) {
 	var item billing.InvoiceItem
 	var invoiceID sql.NullString
-	var metadataRaw, createdAt string
-	if err := row.Scan(&item.ID, &item.CustomerID, &invoiceID, &item.Amount, &item.Currency, &item.Description, &metadataRaw, &createdAt, &item.PriceID, &item.ProductID, &item.Quantity, &item.SubscriptionID); err != nil {
+	var metadataRaw, createdAt, taxRates string
+	if err := row.Scan(&item.ID, &item.CustomerID, &invoiceID, &item.Amount, &item.Currency, &item.Description, &metadataRaw, &createdAt, &item.PriceID, &item.ProductID, &item.Quantity, &item.SubscriptionID, &taxRates); err != nil {
 		return item, err
 	}
+	item.TaxRates = decodeAppliedTaxRates(taxRates)
 	item.Object = billing.ObjectInvoiceItem
 	item.InvoiceID = invoiceID.String
 	item.Metadata = decodeMap(metadataRaw)

@@ -3701,6 +3701,10 @@ func (h *Handler) handleInvoiceItems(w http.ResponseWriter, r *http.Request) {
 			item.Amount = price.UnitAmount * quantity
 			item.Currency = price.Currency
 		}
+		if item.TaxRates, err = h.appliedTaxRatesFromParams(p, "tax_rates"); err != nil {
+			writeResult(w, nil, err)
+			return
+		}
 		created, _, err := h.billing.CreateInvoiceItem(r.Context(), item)
 		writeResult(w, stripeInvoiceItem(created), err)
 	case http.MethodGet:
@@ -8268,6 +8272,7 @@ func stripeInvoiceItem(item billing.InvoiceItem) map[string]any {
 		"currency":     item.Currency,
 		"description":  emptyToNil(item.Description),
 		"metadata":     nonNilMap(item.Metadata),
+		"tax_rates":    synthesizeTaxRateObjects(item.TaxRates),
 		"quantity":     quantity,
 		"created":      unix(item.CreatedAt),
 		"livemode":     false,

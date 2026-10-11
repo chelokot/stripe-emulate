@@ -95,8 +95,8 @@ func TestPendingInvoiceItemAllowsNullInvoiceID(t *testing.T) {
 	}
 
 	_, err = store.db.ExecContext(ctx, `INSERT INTO invoice_items (`+invoiceItemColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"ii_missing_invoice", customer.ID, "in_missing", int64(100), "usd", "", "{}", time.Now().UTC().Format(time.RFC3339Nano), "", "", int64(0), "")
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"ii_missing_invoice", customer.ID, "in_missing", int64(100), "usd", "", "{}", time.Now().UTC().Format(time.RFC3339Nano), "", "", int64(0), "", "[]")
 	if err == nil {
 		t.Fatal("insert with unknown invoice_id succeeded, want foreign key error")
 	}
