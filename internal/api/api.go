@@ -1702,11 +1702,16 @@ func (h *Handler) handleCheckoutSessions(w http.ResponseWriter, r *http.Request)
 		}
 		writeResult(w, h.stripeCheckoutSession(r, session), err)
 	case http.MethodGet:
+		query := paramsFromValues(r.URL.Query())
+		if err := validateCheckoutSessionList(query); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 		sessions, err := h.billing.ListCheckoutSessions(r.Context())
 		data := make([]map[string]any, 0, len(sessions))
-		for i := range sessions {
-			sessions[i].URL = h.absoluteURL(r, sessions[i].URL)
-			data = append(data, h.stripeCheckoutSession(r, sessions[i]))
+		for _, session := range h.filterCheckoutSessions(r, sessions, query) {
+			session.URL = h.absoluteURL(r, session.URL)
+			data = append(data, h.stripeCheckoutSession(r, session))
 		}
 		writeResult(w, stripeListFromRequest(r, data), err)
 	default:
@@ -1827,6 +1832,42 @@ func (h *Handler) handleCheckoutSessionLineItems(w http.ResponseWriter, r *http.
 		writeResult(w, nil, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, stripeListFromRequest(r, h.checkoutSessionLineItems(r, session)))
+}
+
+// filterCheckoutSessions applies the filters Stripe's checkout session list takes.
+func (h *Handler) filterCheckoutSessions(r *http.Request, sessions []billing.CheckoutSession, query params) []billing.CheckoutSession {
+	email := query.string("customer_details[email]")
+	out := make([]billing.CheckoutSession, 0, len(sessions))
+	for _, session := range sessions {
+		switch {
+		case query.has("customer") && session.CustomerID != query.string("customer"),
+			query.has("payment_intent") && session.PaymentIntentID != query.string("payment_intent"),
+			query.has("subscription") && session.SubscriptionID != query.string("subscription"),
+			query.has("status") && session.Status != query.string("status"),
+			query.has("payment_link"),
+			query.has("created") && session.CreatedAt.Unix() != query.int64("created"),
+			!createdWithin(session.CreatedAt.Unix(), query):
+			continue
+		}
+		if email != "" {
+			customer, err := h.billing.GetCustomer(r.Context(), session.CustomerID)
+			if err != nil || customer.Email != email {
+				continue
+			}
+		}
+		out = append(out, session)
+	}
+	return out
+}
+
+func createdWithin(created int64, query params) bool {
+	gt, gte := query.int64("created[gt]"), query.int64("created[gte]")
+	lt, lte := query.int64("created[lt]"), query.int64("created[lte]")
+	return (gt == 0 || created > gt) && (gte == 0 || created >= gte) && (lt == 0 || created < lt) && (lte == 0 || created <= lte)
+}
+
+func (h *Handler) checkoutSessionLineItems(r *http.Request, session billing.CheckoutSession) []map[string]any {
 	data := make([]map[string]any, 0, len(session.LineItems))
 	for idx, item := range session.LineItems {
 		quantity := item.Quantity
@@ -1869,7 +1910,7 @@ func (h *Handler) handleCheckoutSessionLineItems(w http.ResponseWriter, r *http.
 			"metadata":            map[string]string{},
 		})
 	}
-	writeJSON(w, http.StatusOK, stripeListFromRequest(r, data))
+	return data
 }
 
 func (h *Handler) handleBillingPortalSessions(w http.ResponseWriter, r *http.Request) {

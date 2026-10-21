@@ -109,10 +109,17 @@ func (h *Handler) expandPath(r *http.Request, value any, path []string) any {
 // includableField returns fields Stripe only renders when they are named in
 // expand[].
 func (h *Handler) includableField(r *http.Request, object map[string]any, field string) (any, bool) {
+	id, _ := object["id"].(string)
+	if object["object"] == "checkout.session" && field == "line_items" {
+		session, err := h.billing.GetCheckoutSession(r.Context(), id)
+		if err != nil {
+			return nil, false
+		}
+		return genericJSON(stripeList("/v1/checkout/sessions/"+id+"/line_items", h.checkoutSessionLineItems(r, session)))
+	}
 	if object["object"] != "invoice" {
 		return nil, false
 	}
-	id, _ := object["id"].(string)
 	invoice, err := h.billing.GetInvoice(r.Context(), id)
 	if err != nil {
 		return nil, false
@@ -124,12 +131,7 @@ func (h *Handler) includableField(r *http.Request, object map[string]any, field 
 		}
 		return map[string]any{"client_secret": invoice.PaymentIntentID + "_secret_emulator", "type": "payment_intent"}, true
 	case "payments":
-		var generic any
-		encoded, err := json.Marshal(stripeList("/v1/invoices/"+id+"/payments", h.stripeInvoicePayments(r.Context(), invoice, nil)))
-		if err != nil || json.Unmarshal(encoded, &generic) != nil {
-			return nil, false
-		}
-		return generic, true
+		return genericJSON(stripeList("/v1/invoices/"+id+"/payments", h.stripeInvoicePayments(r.Context(), invoice, nil)))
 	default:
 		return nil, false
 	}
@@ -190,8 +192,14 @@ func (h *Handler) expandableObject(r *http.Request, id string) (any, bool) {
 	default:
 		return nil, false
 	}
+	return genericJSON(object)
+}
+
+// genericJSON round-trips a serializer's map through JSON so the response
+// tree holds only plain JSON values.
+func genericJSON(value any) (any, bool) {
 	var generic any
-	encoded, err := json.Marshal(object)
+	encoded, err := json.Marshal(value)
 	if err != nil || json.Unmarshal(encoded, &generic) != nil {
 		return nil, false
 	}

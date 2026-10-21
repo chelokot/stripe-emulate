@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +83,53 @@ func TestSubscriptionCreateEmitsCreatedAndFirstInvoiceEvents(t *testing.T) {
 		if seen[eventType] != objectID {
 			t.Fatalf("%s object = %q, want %q; events = %#v", eventType, seen[eventType], objectID, seen)
 		}
+	}
+}
+
+func TestCheckoutSessionListFindsSessionByPaymentIntentWithLineItems(t *testing.T) {
+	handler := newTestHandler(t)
+	customer, lite, _, _ := setupProrationPlans(t, handler)
+	createPaymentSession := func(quantity string) string {
+		session := postForm[struct {
+			ID string `json:"id"`
+		}](t, handler, "/v1/checkout/sessions", url.Values{
+			"customer":                               {customer.ID},
+			"mode":                                   {"payment"},
+			"line_items[0][price_data][currency]":    {"usd"},
+			"line_items[0][price_data][unit_amount]": {"500"},
+			"line_items[0][price_data][product_data][name]": {"Extra credits"},
+			"line_items[0][quantity]":                       {quantity},
+			"success_url":                                   {"https://example.com/success"},
+		})
+		return session.ID
+	}
+	credits := createPaymentSession("3")
+	completion := postJSON[map[string]json.RawMessage](t, handler, "/api/checkout/sessions/"+credits+"/complete", map[string]string{"outcome": "payment_succeeded"})
+	var intent struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(completion["payment_intent"], &intent); err != nil || intent.ID == "" {
+		t.Fatalf("completed payment intent = %s, err %v", completion["payment_intent"], err)
+	}
+	createPaymentSession("1")
+	_ = postForm[map[string]any](t, handler, "/v1/subscriptions", url.Values{"customer": {customer.ID}, "items[0][price]": {lite.ID}})
+
+	listed := getJSON[struct {
+		Data []struct {
+			ID        string `json:"id"`
+			LineItems struct {
+				Data []struct {
+					Quantity int64 `json:"quantity"`
+				} `json:"data"`
+			} `json:"line_items"`
+		} `json:"data"`
+	}](t, handler, "/v1/checkout/sessions?"+url.Values{"payment_intent": {intent.ID}, "limit": {"1"}, "expand[]": {"data.line_items"}}.Encode())
+	if len(listed.Data) != 1 || listed.Data[0].ID != credits || len(listed.Data[0].LineItems.Data) != 1 || listed.Data[0].LineItems.Data[0].Quantity != 3 {
+		t.Fatalf("sessions for %s = %#v, want only %s with its 3-unit line item", intent.ID, listed.Data, credits)
+	}
+
+	status, body := getStatus(t, handler, "/v1/checkout/sessions?payment_intnet="+intent.ID)
+	if status != http.StatusBadRequest || !strings.Contains(body, "payment_intnet") {
+		t.Fatalf("misspelled filter status = %d body = %s, want 400 naming the unknown parameter", status, body)
 	}
 }

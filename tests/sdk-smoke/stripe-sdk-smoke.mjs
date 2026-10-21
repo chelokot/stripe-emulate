@@ -840,7 +840,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
       const itemId = sub.items?.data?.[0]?.id;
       assertEqual(Boolean(itemId), true, "tax preview sub item id");
       // Pin to period start so remaining == full period (preview == confirmed).
-      const prorationDate = sub.current_period_start;
+      const prorationDate = sub.items.data[0].current_period_start;
 
       const preview = await stripe.invoices.createPreview({
         customer: customer.id,
@@ -977,7 +977,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
         default_tax_rates: [txr.id],
       });
       const createInvoiceId = sub.latest_invoice;
-      const prorationDate = sub.current_period_start;
+      const prorationDate = sub.items.data[0].current_period_start;
 
       const item = await stripe.subscriptionItems.create({
         subscription: sub.id,

@@ -1811,6 +1811,19 @@ func validateSubscriptionItemUpdate(p params) error {
 	})
 }
 
+func validateCheckoutSessionList(p params) error {
+	return p.validate(paramSpec{
+		Allowed: []string{
+			"created", "created[gt]", "created[gte]", "created[lt]", "created[lte]",
+			"customer", "customer_account", "customer_details[email]", "ending_before", "limit",
+			"payment_intent", "payment_link", "starting_after", "status", "subscription",
+		},
+		Int64Params: []string{"limit", "created", "created[gt]", "created[gte]", "created[lt]", "created[lte]"},
+		Positive:    []string{"limit"},
+		EnumParams:  map[string][]string{"status": {"complete", "expired", "open"}},
+	})
+}
+
 func validatePaymentMethodList(p params) error {
 	return p.validate(paramSpec{
 		Allowed:     []string{"allow_redisplay", "customer", "customer_account", "ending_before", "limit", "starting_after", "type"},
