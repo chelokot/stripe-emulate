@@ -78,7 +78,7 @@ func listSubscriptionInvoices(t *testing.T, handler http.Handler, subID string) 
 // TestSubscriptionUpdateAlwaysInvoiceUpgrade: 4900→9900 at period start →
 // delta 5000, tax 500, total 5500, billing_reason=subscription_update.
 func TestSubscriptionUpdateAlwaysInvoiceUpgrade(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	created := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{
@@ -130,7 +130,8 @@ func TestSubscriptionUpdateAlwaysInvoiceUpgrade(t *testing.T) {
 // (Previously subtotal was wrongly newTotal 9900 with credit only in metadata, which broke
 // Stripe's subtotal - discount + tax = total identity and made total_taxes recompute as 990.)
 func TestSubscriptionUpdateAlwaysInvoiceBillingCycleAnchorNow(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
+	handler = withStripeVersion(handler, legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	// Fixed period; proration_date = period start so remaining == full period.
@@ -192,8 +193,8 @@ func TestSubscriptionUpdateAlwaysInvoiceBillingCycleAnchorNow(t *testing.T) {
 	if invoice.BillingReason != "subscription_update" {
 		t.Fatalf("billing_reason = %q", invoice.BillingReason)
 	}
-	if invoice.Metadata[billing.MetadataProrationCredit] != "4900" {
-		t.Fatalf("proration credit metadata = %q, want 4900 (pre-discount)", invoice.Metadata[billing.MetadataProrationCredit])
+	if storedInvoiceMetadata(t, store, upgraded.LatestInvoice)[billing.MetadataProrationCredit] != "4900" {
+		t.Fatalf("proration credit metadata = %q, want 4900 (pre-discount)", storedInvoiceMetadata(t, store, upgraded.LatestInvoice)[billing.MetadataProrationCredit])
 	}
 	assertInvoiceAmountIdentity(t, invoice.Subtotal, invoice.TotalDiscountAmounts, invoice.Tax, invoice.Total, invoice.TotalExcludingTax, invoice.TotalTaxes)
 }
@@ -555,7 +556,7 @@ func reverseStrings(in []string) []string {
 
 // TestSubscriptionUpdateAlwaysInvoiceWithDiscountAndTax: 25% coupon, then 10% VAT on discounted delta.
 func TestSubscriptionUpdateAlwaysInvoiceWithDiscountAndTax(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 	coupon := postForm[struct {
 		ID string `json:"id"`
@@ -666,7 +667,8 @@ func assertInvoiceAmountIdentity(t *testing.T, subtotal int64, discounts []struc
 // coupon, and fractional tax rate — each must satisfy Stripe amount identity and
 // tax serialization consistency.
 func TestSubscriptionProrationInvoiceAmountIdentity(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
+	handler = withStripeVersion(handler, legacyStripeVersion)
 	customer, lite, pro, vat10ID := setupProrationPlans(t, handler)
 	// Fractional tax rate (8.875%) to stress rounding vs stored tax.
 	vatFrac := postForm[struct {
@@ -824,12 +826,12 @@ func TestSubscriptionProrationInvoiceAmountIdentity(t *testing.T) {
 
 			// anchor=now credit metadata: pre-discount primary key
 			if tc.params.Get("billing_cycle_anchor") == "now" {
-				if invoice.Metadata[billing.MetadataProrationCredit] == "" {
+				if storedInvoiceMetadata(t, store, upgraded.LatestInvoice)[billing.MetadataProrationCredit] == "" {
 					t.Fatal("missing emulator_proration_credit on anchor=now invoice")
 				}
 				if tc.subID == "sub_id_anchor_coupon" {
 					// discounted credit differs from pre-discount
-					if invoice.Metadata[billing.MetadataProrationCreditDiscounted] == "" {
+					if storedInvoiceMetadata(t, store, upgraded.LatestInvoice)[billing.MetadataProrationCreditDiscounted] == "" {
 						t.Fatalf("want emulator_proration_credit_discounted when coupon applies; meta=%v", invoice.Metadata)
 					}
 				}

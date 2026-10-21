@@ -140,7 +140,7 @@ func TestCheckoutInvoiceCreationValidation(t *testing.T) {
 }
 
 func TestCheckoutPaymentModeLineTaxRates(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"line-tax@example.test"}})
 	product := postForm[map[string]any](t, handler, "/v1/products", url.Values{"name": {"Extra export"}})
 	price := postForm[map[string]any](t, handler, "/v1/prices", url.Values{

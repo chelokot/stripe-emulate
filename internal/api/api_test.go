@@ -5126,9 +5126,6 @@ func TestInvoiceBackedOneTimePaymentFlow(t *testing.T) {
 	if failed.Status != "open" || failed.AmountPaid != 0 || failed.AmountDue != 100 || len(failed.Payments.Data) != 1 {
 		t.Fatalf("failed invoice = %#v, want open invoice with amount due", failed)
 	}
-	if failed.Metadata["emulator_last_invoice_payment_outcome"] != "card_declined" {
-		t.Fatalf("failed invoice metadata = %#v, want configured outcome to win over payment_method", failed.Metadata)
-	}
 	failedPI := failed.Payments.Data[0].Payment.PaymentIntent
 	if failedPI.Status != "requires_payment_method" || failedPI.LastPaymentError == nil || failedPI.LastPaymentError.Code != "card_declined" {
 		t.Fatalf("failed payment intent = %#v, want card_declined", failedPI)
@@ -5143,13 +5140,11 @@ func TestInvoiceBackedOneTimePaymentFlow(t *testing.T) {
 	_ = postForm[invoiceResponse](t, handler, "/v1/invoices/"+actionInvoice.ID+"/finalize", nil)
 	action := postForm[invoiceResponse](t, handler, "/v1/invoices/"+actionInvoice.ID+"/pay", url.Values{
 		"payment_method": {"pm_cus_invoice_action"},
-		"expand[]":       {"payments.data.payment.payment_intent"},
+		"expand[0]":      {"payments.data.payment.payment_intent"},
+		"expand[1]":      {"confirmation_secret"},
 	})
 	if action.Status != "open" || len(action.Payments.Data) != 1 || action.Payments.Data[0].Payment.PaymentIntent.Status != "requires_action" || action.ConfirmationSecret == nil || action.ConfirmationSecret.ClientSecret == "" {
 		t.Fatalf("requires-action invoice = %#v, want open invoice with requires_action intent and confirmation secret", action)
-	}
-	if action.Metadata["emulator_last_invoice_payment_outcome"] != "requires_action" {
-		t.Fatalf("requires-action invoice metadata = %#v, want configured outcome to win over payment_method", action.Metadata)
 	}
 }
 
@@ -5310,8 +5305,8 @@ func TestInvoiceItemPricingCreate(t *testing.T) {
 			"currency":    {"usd"},
 			"description": {"One-time usage"},
 		})
-		if item.Amount != 100 || item.Currency != "usd" || item.Quantity != 1 || item.Pricing != nil {
-			t.Fatalf("item = %#v, want amount-path item quantity 1 without pricing", item)
+		if item.Amount != 100 || item.Currency != "usd" || item.Quantity != 1 || item.Pricing == nil || item.Pricing.UnitAmountDecimal != "100" {
+			t.Fatalf("item = %#v, want amount-path item backed by an ad-hoc price like Stripe", item)
 		}
 		finalized := postForm[invoiceResponse](t, handler, "/v1/invoices/"+invoice.ID+"/finalize", nil)
 		if finalized.AmountDue != 100 {
@@ -5367,7 +5362,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 	}
 
 	t.Run("include attaches pending items and sums totals", func(t *testing.T) {
-		handler := newTestHandler(t)
+		handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 		customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 			"email": {"pending-include@example.test"},
 		})
@@ -5422,7 +5417,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 				t.Fatalf("attached line = %#v, want invoice %s", line, invoice.ID)
 			}
 		}
-		if !gotIDs[first.ID] || !gotIDs[second.ID] {
+		if !gotIDs[billing.InvoiceLineID(first.ID)] || !gotIDs[billing.InvoiceLineID(second.ID)] {
 			t.Fatalf("include lines ids = %#v, want %s and %s", invoice.Lines.Data, first.ID, second.ID)
 		}
 
@@ -5441,7 +5436,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 	})
 
 	t.Run("exclude leaves pending items unattached", func(t *testing.T) {
-		handler := newTestHandler(t)
+		handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 		customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 			"email": {"pending-exclude@example.test"},
 		})
@@ -5477,7 +5472,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 	})
 
 	t.Run("subscription is stored and echoed", func(t *testing.T) {
-		handler := newTestHandler(t)
+		handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 		customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 			"email": {"invoice-sub@example.test"},
 		})
@@ -5510,7 +5505,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 	})
 
 	t.Run("days_until_due sets due_date", func(t *testing.T) {
-		handler := newTestHandler(t)
+		handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 		customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 			"email": {"invoice-due@example.test"},
 		})
@@ -5532,7 +5527,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 	})
 
 	t.Run("lines.data includes pricing and quantity", func(t *testing.T) {
-		handler := newTestHandler(t)
+		handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 		customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 			"email": {"invoice-lines@example.test"},
 		})
@@ -5558,7 +5553,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 			t.Fatalf("lines = %#v, want 1", got.Lines.Data)
 		}
 		line := got.Lines.Data[0]
-		if line.ID != item.ID || line.Amount != 750 || line.Quantity != 3 {
+		if line.ID != billing.InvoiceLineID(item.ID) || line.Amount != 750 || line.Quantity != 3 {
 			t.Fatalf("line = %#v, want item %s amount 750 quantity 3", line, item.ID)
 		}
 		if line.Pricing == nil || line.Pricing.Type != "price_details" || line.Pricing.PriceDetails.Price != price.ID || line.Pricing.PriceDetails.Product != product.ID {
@@ -5573,7 +5568,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 	})
 
 	t.Run("post_payment_credit_notes_amount after credit note", func(t *testing.T) {
-		handler := newTestHandler(t)
+		handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 		customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 			"email": {"invoice-credit@example.test"},
 		})
@@ -5627,7 +5622,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 }
 
 func TestInvoiceEmailSendEvidence(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 
 	type invoiceResponse struct {
 		ID       string            `json:"id"`
@@ -5690,14 +5685,14 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if finalized.Status != "open" {
 		t.Fatalf("finalized send_invoice = %#v, want open", finalized)
 	}
-	if finalized.Metadata["emulator_email_sent_at"] == "" {
-		t.Fatalf("finalized metadata missing emulator_email_sent_at: %#v", finalized.Metadata)
+	if storedInvoiceMetadata(t, store, finalized.ID)["emulator_email_sent_at"] == "" {
+		t.Fatalf("finalized metadata missing emulator_email_sent_at: %#v", storedInvoiceMetadata(t, store, finalized.ID))
 	}
-	if finalized.Metadata["emulator_email_recipient"] != "send-invoice@example.test" {
-		t.Fatalf("finalized recipient = %q, want customer email", finalized.Metadata["emulator_email_recipient"])
+	if storedInvoiceMetadata(t, store, finalized.ID)["emulator_email_recipient"] != "send-invoice@example.test" {
+		t.Fatalf("finalized recipient = %q, want customer email", storedInvoiceMetadata(t, store, finalized.ID)["emulator_email_recipient"])
 	}
-	if _, err := time.Parse(time.RFC3339, finalized.Metadata["emulator_email_sent_at"]); err != nil {
-		t.Fatalf("emulator_email_sent_at = %q, want RFC3339: %v", finalized.Metadata["emulator_email_sent_at"], err)
+	if _, err := time.Parse(time.RFC3339, storedInvoiceMetadata(t, store, finalized.ID)["emulator_email_sent_at"]); err != nil {
+		t.Fatalf("emulator_email_sent_at = %q, want RFC3339: %v", storedInvoiceMetadata(t, store, finalized.ID)["emulator_email_sent_at"], err)
 	}
 
 	eventsAfterFinalize := getJSON[struct {
@@ -5743,8 +5738,8 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if sent.Object != "invoice" || sent.Status != "open" {
 		t.Fatalf("explicit send = %#v, want open invoice object", sent)
 	}
-	if sent.Metadata["emulator_email_sent_at"] == "" || sent.Metadata["emulator_email_recipient"] != "auto-send@example.test" {
-		t.Fatalf("explicit send metadata = %#v, want email evidence", sent.Metadata)
+	if storedInvoiceMetadata(t, store, sent.ID)["emulator_email_sent_at"] == "" || storedInvoiceMetadata(t, store, sent.ID)["emulator_email_recipient"] != "auto-send@example.test" {
+		t.Fatalf("explicit send metadata = %#v, want email evidence", storedInvoiceMetadata(t, store, sent.ID))
 	}
 	sentEvents := getJSON[struct {
 		Object string           `json:"object"`
@@ -5770,9 +5765,9 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if paid.Status != "paid" {
 		t.Fatalf("paid invoice = %#v, want paid", paid)
 	}
-	priorSentAt := paid.Metadata["emulator_email_sent_at"]
+	priorSentAt := storedInvoiceMetadata(t, store, paid.ID)["emulator_email_sent_at"]
 	if priorSentAt == "" {
-		t.Fatalf("paid invoice missing prior send evidence: %#v", paid.Metadata)
+		t.Fatalf("paid invoice missing prior send evidence: %#v", storedInvoiceMetadata(t, store, paid.ID))
 	}
 	// Ensure timestamp can move forward on re-send.
 	time.Sleep(1100 * time.Millisecond)
@@ -5780,10 +5775,10 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if paidSent.Object != "invoice" || paidSent.Status != "paid" {
 		t.Fatalf("paid send = %#v, want paid invoice object", paidSent)
 	}
-	if paidSent.Metadata["emulator_email_sent_at"] == "" || paidSent.Metadata["emulator_email_recipient"] != "auto-send@example.test" {
-		t.Fatalf("paid send metadata = %#v, want refreshed email evidence", paidSent.Metadata)
+	if storedInvoiceMetadata(t, store, paidSent.ID)["emulator_email_sent_at"] == "" || storedInvoiceMetadata(t, store, paidSent.ID)["emulator_email_recipient"] != "auto-send@example.test" {
+		t.Fatalf("paid send metadata = %#v, want refreshed email evidence", storedInvoiceMetadata(t, store, paidSent.ID))
 	}
-	if paidSent.Metadata["emulator_email_sent_at"] == priorSentAt {
+	if storedInvoiceMetadata(t, store, paidSent.ID)["emulator_email_sent_at"] == priorSentAt {
 		t.Fatalf("paid re-send did not refresh emulator_email_sent_at: %q", priorSentAt)
 	}
 	paidSentEvents := getJSON[struct {
@@ -6099,7 +6094,7 @@ func TestFixtureApplySnapshotAndAssertAPI(t *testing.T) {
 }
 
 func TestFixtureApplyPreservesStableBillingGraphIDs(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	pack := map[string]any{
 		"name":      "sample-fixed-ids",
 		"runId":     "run-fixed-ids-1",
@@ -6830,7 +6825,7 @@ func TestRefundCreditNoteAPIsAndEvents(t *testing.T) {
 }
 
 func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"preview@example.test"}})
 	product := postForm[billing.Product](t, handler, "/v1/products", url.Values{"name": {"Preview Team"}})
 	lite := postForm[billing.Price](t, handler, "/v1/prices", url.Values{
@@ -6890,11 +6885,15 @@ func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
 			Data   []struct {
 				Amount    int64 `json:"amount"`
 				Proration bool  `json:"proration"`
-				Parent    struct {
+				Pricing   struct {
+					PriceDetails struct {
+						Price string `json:"price"`
+					} `json:"price_details"`
+				} `json:"pricing"`
+				Parent struct {
 					Type                    string `json:"type"`
 					SubscriptionItemDetails struct {
 						Proration        bool   `json:"proration"`
-						Price            string `json:"price"`
 						SubscriptionItem string `json:"subscription_item"`
 					} `json:"subscription_item_details"`
 				} `json:"parent"`
@@ -6914,7 +6913,7 @@ func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
 		"subscription_details[proration_date]":       {strconv.FormatInt(prorationDate, 10)},
 		"subscription_details[billing_cycle_anchor]": {"now"},
 	})
-	if preview.Object != "invoice" || preview.AmountDue != 1000 || preview.EmulatorPreview.BillingCycleAnchor != prorationDate || len(preview.Lines.Data) != 2 || preview.Lines.Data[1].Parent.SubscriptionItemDetails.Price != pro.ID || preview.Lines.Data[0].Amount+preview.Lines.Data[1].Amount != 1000 {
+	if preview.Object != "invoice" || preview.AmountDue != 1000 || preview.EmulatorPreview.BillingCycleAnchor != prorationDate || len(preview.Lines.Data) != 2 || preview.Lines.Data[1].Pricing.PriceDetails.Price != pro.ID || preview.Lines.Data[0].Amount+preview.Lines.Data[1].Amount != 1000 {
 		t.Fatalf("preview = %#v, want unused-time credit + remaining-time charge netting 1000 and accepted billing_cycle_anchor", preview)
 	}
 	for _, line := range preview.Lines.Data {
@@ -6961,7 +6960,7 @@ func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
 }
 
 func TestInvoicePreviewTrialEndNowMatchesConfirm(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, _, taxRateID := setupProrationPlans(t, handler)
 	session := postForm[billing.CheckoutSession](t, handler, "/v1/checkout/sessions", url.Values{
 		"customer":                                {customer.ID},
@@ -7501,6 +7500,17 @@ func TestWebhookEndpointPatchPreservesActiveUnlessEnabledChanges(t *testing.T) {
 	}
 }
 
+const legacyStripeVersion = "2024-06-20"
+
+// withStripeVersion pins every request to a Stripe API version, so tests can
+// read the legacy response fields older clients receive.
+func withStripeVersion(handler http.Handler, version string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Stripe-Version", version)
+		handler.ServeHTTP(w, r)
+	})
+}
+
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
 	return newTestHandlerWithOptions(t, Options{})
@@ -7865,10 +7875,10 @@ func TestSubscriptionCreateProrationBehaviorAndPaymentSettings(t *testing.T) {
 	if created.Metadata["proration_behavior"] != "create_prorations" {
 		t.Fatalf("proration_behavior metadata = %#v, want create_prorations", created.Metadata)
 	}
-	if created.Metadata["payment_settings[payment_method_types][0]"] != "card" {
+	if created.Metadata["emulator_payment_settings[payment_method_types][0]"] != "card" {
 		t.Fatalf("payment_settings metadata = %#v, want types card", created.Metadata)
 	}
-	if created.Metadata["payment_settings[payment_method_options][customer_balance][funding_type]"] != "bank_transfer" {
+	if created.Metadata["emulator_payment_settings[payment_method_options][customer_balance][funding_type]"] != "bank_transfer" {
 		t.Fatalf("customer_balance metadata = %#v, want funding_type", created.Metadata)
 	}
 	status, body := postFormStatus(t, handler, "/v1/subscriptions", url.Values{

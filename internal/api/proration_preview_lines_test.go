@@ -53,7 +53,7 @@ func TestCreatePreviewProrationLinesPerSubscriptionItem(t *testing.T) {
 // period, an always_invoice upgrade stores per-item credit/charge lines. Each
 // line has period, parent.subscription_item_details and its discount share.
 func TestSubscriptionInvoiceLinesCarryPeriodParentAndDiscount(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, _ := setupProrationPlans(t, handler)
 	coupon := postForm[map[string]any](t, handler, "/v1/coupons", url.Values{"percent_off": {"25"}, "duration": {"forever"}})
 	created := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{

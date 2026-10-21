@@ -31,11 +31,13 @@ func (w *bufferedResponseWriter) Write(body []byte) (int, error) {
 	return w.body.Write(body)
 }
 
-// serveExpanded routes the request and, when it carries expand[] paths,
-// replaces the ids found at those paths with the objects they reference.
-func (h *Handler) serveExpanded(w http.ResponseWriter, r *http.Request) {
+// serveTransformed routes the request and rewrites its JSON response: ids at
+// expand[] paths become the objects they reference, and clients pinned to a
+// pre-basil Stripe-Version get the legacy fields back.
+func (h *Handler) serveTransformed(w http.ResponseWriter, r *http.Request) {
 	paths := expandPaths(r)
-	if len(paths) == 0 {
+	legacy := legacyAPIVersion(r)
+	if len(paths) == 0 && !legacy {
 		h.mux.ServeHTTP(w, r)
 		return
 	}
@@ -47,6 +49,9 @@ func (h *Handler) serveExpanded(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(body, &decoded); err == nil {
 			for _, path := range paths {
 				decoded = h.expandPath(r, decoded, strings.Split(path, "."))
+			}
+			if legacy {
+				h.addLegacyFields(r, decoded)
 			}
 			if encoded, err := json.Marshal(decoded); err == nil {
 				body = encoded
@@ -82,7 +87,11 @@ func (h *Handler) expandPath(r *http.Request, value any, path []string) any {
 		if len(path) == 0 {
 			return current
 		}
-		if field, ok := current[path[0]]; ok {
+		field, ok := current[path[0]]
+		if !ok {
+			field, ok = h.includableField(r, current, path[0])
+		}
+		if ok {
 			current[path[0]] = h.expandPath(r, field, path[1:])
 		}
 		return current
@@ -94,6 +103,35 @@ func (h *Handler) expandPath(r *http.Request, value any, path []string) any {
 		return h.expandPath(r, object, path)
 	default:
 		return value
+	}
+}
+
+// includableField returns fields Stripe only renders when they are named in
+// expand[].
+func (h *Handler) includableField(r *http.Request, object map[string]any, field string) (any, bool) {
+	if object["object"] != "invoice" {
+		return nil, false
+	}
+	id, _ := object["id"].(string)
+	invoice, err := h.billing.GetInvoice(r.Context(), id)
+	if err != nil {
+		return nil, false
+	}
+	switch field {
+	case "confirmation_secret":
+		if invoice.PaymentIntentID == "" {
+			return nil, true
+		}
+		return map[string]any{"client_secret": invoice.PaymentIntentID + "_secret_emulator", "type": "payment_intent"}, true
+	case "payments":
+		var generic any
+		encoded, err := json.Marshal(stripeList("/v1/invoices/"+id+"/payments", h.stripeInvoicePayments(r.Context(), invoice, nil)))
+		if err != nil || json.Unmarshal(encoded, &generic) != nil {
+			return nil, false
+		}
+		return generic, true
+	default:
+		return nil, false
 	}
 }
 

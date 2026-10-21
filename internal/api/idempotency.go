@@ -35,12 +35,12 @@ func (h *Handler) serveWithIdempotency(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		h.serveExpanded(w, r)
+		h.serveTransformed(w, r)
 		return
 	}
 	key := strings.TrimSpace(r.Header.Get(idempotencyKeyHeader))
 	if key == "" {
-		h.serveExpanded(w, r)
+		h.serveTransformed(w, r)
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *Handler) serveWithIdempotency(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := &recordingResponseWriter{ResponseWriter: w, status: http.StatusOK}
-	h.serveExpanded(rec, r)
+	h.serveTransformed(rec, r)
 	if shouldStoreIdempotentResponse(rec.status) {
 		h.idem.set(key, idempotencyEntry{
 			Fingerprint: fingerprint,

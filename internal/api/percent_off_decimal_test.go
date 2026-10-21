@@ -16,7 +16,7 @@ import (
 // create/GET round-trip, discount math (exact + round), applies_to, validation,
 // tax composition, metadata renewal snapshot, and JSON integer backward-compat.
 func TestPercentOffDecimalSupport(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 
 	// --- 1. percent_off=12.5 create → GET 12.5; integer 50 stays 50 ---
 	decimalCoupon := postForm[map[string]any](t, handler, "/v1/coupons", url.Values{

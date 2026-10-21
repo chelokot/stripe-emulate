@@ -3046,34 +3046,23 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 			automaticTaxEnabled = false
 		}
 	}
-	taxValue := any(nil)
 	totalExcludingTax := amount
 	total := amount
-	totalTaxAmounts := []map[string]any{}
 	totalTaxes := []map[string]any{}
 	defaultTaxRates := []map[string]any{}
 	automaticTaxObj := stripeInvoiceAutomaticTax(false)
 	if len(rates) > 0 {
-		pretax, taxTotal, exclusiveTotal, tta, tt := invoiceTaxBreakdown(amount, rates)
-		taxValue = taxTotal
+		pretax, _, exclusiveTotal, tt := invoiceTaxBreakdown(amount, rates)
 		totalExcludingTax = pretax
 		total = amount + exclusiveTotal
-		totalTaxAmounts = tta
 		totalTaxes = tt
 		defaultTaxRates = h.stripeTaxRateObjects(rates)
 	} else if automaticTaxEnabled {
 		taxAmt := billing.ExclusiveTaxAmount(amount, taxPercent)
-		taxValue = taxAmt
 		total = amount + taxAmt
 		totalExcludingTax = amount
 		automaticTaxObj = stripeInvoiceAutomaticTax(true)
 		if taxAmt > 0 {
-			totalTaxAmounts = []map[string]any{{
-				"amount":            taxAmt,
-				"inclusive":         false,
-				"tax_rate":          "txr_emulator_simulated",
-				"taxability_reason": "standard_rated",
-			}}
 			totalTaxes = []map[string]any{{
 				"amount":            taxAmt,
 				"tax_behavior":      "exclusive",
@@ -3089,7 +3078,6 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		"id":                               "upcoming_in_" + strconv.FormatInt(now.Unix(), 10),
 		"object":                           "invoice",
 		"customer":                         emptyToNil(customerID),
-		"subscription":                     emptyToNil(subscriptionID),
 		"parent":                           stripeInvoiceParent(subscriptionID),
 		"amount_due":                       total,
 		"amount_paid":                      0,
@@ -3099,7 +3087,6 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		"subtotal_excluding_tax":           subtotal,
 		"total":                            total,
 		"total_excluding_tax":              totalExcludingTax,
-		"discount":                         firstDiscountObject(h, discounts, customerID, subscriptionID, ""),
 		"discounts":                        discountObjects(h, discounts, customerID, subscriptionID, ""),
 		"total_discount_amounts":           discountAmounts(discounts, totalDiscountAmount),
 		"currency":                         currency,
@@ -3109,21 +3096,18 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		"period_end":                       periodEnd,
 		"status":                           "draft",
 		"lines":                            stripeList(path+"/lines", lines),
-		"payments":                         stripeList(path+"/payments", []map[string]any{}),
 		"livemode":                         false,
 		"description":                      description,
 		"account_country":                  nil,
 		"account_name":                     nil,
 		"account_tax_ids":                  nil,
 		"application":                      nil,
-		"application_fee_amount":           nil,
 		"attempt_count":                    0,
 		"attempted":                        false,
 		"auto_advance":                     false,
 		"automatic_tax":                    automaticTaxObj,
 		"automatically_finalizes_at":       nil,
 		"billing_reason":                   billingReason,
-		"charge":                           nil,
 		"collection_method":                "charge_automatically",
 		"custom_fields":                    nil,
 		"default_payment_method":           nil,
@@ -3138,26 +3122,18 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		"next_payment_attempt":             nil,
 		"number":                           nil,
 		"on_behalf_of":                     nil,
-		"paid":                             false,
-		"paid_out_of_band":                 false,
-		"payment_intent":                   nil,
 		"payment_settings":                 stripeInvoicePaymentSettings(),
 		"post_payment_credit_notes_amount": 0,
 		"pre_payment_credit_notes_amount":  0,
-		"quote":                            nil,
 		"receipt_number":                   nil,
 		"rendering":                        nil,
-		"rendering_options":                nil,
 		"shipping_cost":                    nil,
 		"shipping_details":                 nil,
 		"starting_balance":                 0,
 		"statement_descriptor":             nil,
 		"status_transitions":               stripeInvoiceStatusTransitions(nil, nil),
-		"tax":                              taxValue,
 		"test_clock":                       testClock,
-		"total_tax_amounts":                totalTaxAmounts,
 		"total_taxes":                      totalTaxes,
-		"transfer_data":                    nil,
 		"webhooks_delivered_at":            nil,
 		"emulator_preview": map[string]any{
 			"proration_behavior":       behavior,
@@ -3255,7 +3231,7 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 				quantity = 1
 			}
 			lineAmount := int64(0)
-			var pricePayload any
+			var pricePayload map[string]any
 			if priceObj, ok := prices[item.PriceID]; ok {
 				pricePayload = priceObj
 				if unit, ok := priceObj["unit_amount"].(int64); ok {
@@ -3271,33 +3247,19 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 				lineAmount = price.UnitAmount * quantity
 				pricePayload = stripePrice(price)
 			}
-			lines = append(lines, map[string]any{
-				"id":               "il_preview_" + sanitizeID(subscription.ID) + "_" + strconv.Itoa(idx),
-				"object":           "line_item",
-				"amount":           lineAmount,
-				"currency":         currency,
-				"description":      "Upcoming subscription invoice",
-				"discount_amounts": []map[string]any{},
-				"discountable":     true,
-				"period": map[string]any{
-					"start": periodStartUnix,
-					"end":   periodEndUnix,
-				},
-				"proration":    false,
-				"price":        pricePayload,
-				"quantity":     quantity,
-				"subscription": subscription.ID,
-				"type":         "subscription",
-				"parent": map[string]any{
-					"type": "subscription_item_details",
-					"subscription_item_details": map[string]any{
-						"price":             item.PriceID,
-						"proration":         false,
-						"subscription":      subscription.ID,
-						"subscription_item": billing.ResolvedSubscriptionItemID(subscription.ID, item, idx),
-					},
-				},
-			})
+			lines = append(lines, previewLine(previewLineInput{
+				id:               "il_preview_" + sanitizeID(subscription.ID) + "_" + strconv.Itoa(idx),
+				amount:           lineAmount,
+				currency:         currency,
+				description:      "Upcoming subscription invoice",
+				start:            periodStartUnix,
+				end:              periodEndUnix,
+				quantity:         quantity,
+				priceID:          item.PriceID,
+				price:            pricePayload,
+				subscriptionID:   subscription.ID,
+				subscriptionItem: billing.ResolvedSubscriptionItemID(subscription.ID, item, idx),
+			}))
 		}
 
 		rates = billing.DefaultTaxRatesFromMetadata(subscription.Metadata)
@@ -3307,34 +3269,23 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 		}
 	}
 
-	taxValue := any(nil)
 	totalExcludingTax := amount
 	total := amount
-	totalTaxAmounts := []map[string]any{}
 	totalTaxes := []map[string]any{}
 	defaultTaxRates := []map[string]any{}
 	automaticTaxObj := stripeInvoiceAutomaticTax(false)
 	if len(rates) > 0 {
-		pretax, taxTotal, exclusiveTotal, tta, tt := invoiceTaxBreakdown(amount, rates)
-		taxValue = taxTotal
+		pretax, _, exclusiveTotal, tt := invoiceTaxBreakdown(amount, rates)
 		totalExcludingTax = pretax
 		total = amount + exclusiveTotal
-		totalTaxAmounts = tta
 		totalTaxes = tt
 		defaultTaxRates = h.stripeTaxRateObjects(rates)
 	} else if automaticTaxEnabled {
 		taxAmt := billing.ExclusiveTaxAmount(amount, taxPercent)
-		taxValue = taxAmt
 		total = amount + taxAmt
 		totalExcludingTax = amount
 		automaticTaxObj = stripeInvoiceAutomaticTax(true)
 		if taxAmt > 0 {
-			totalTaxAmounts = []map[string]any{{
-				"amount":            taxAmt,
-				"inclusive":         false,
-				"tax_rate":          "txr_emulator_simulated",
-				"taxability_reason": "standard_rated",
-			}}
 			totalTaxes = []map[string]any{{
 				"amount":            taxAmt,
 				"tax_behavior":      "exclusive",
@@ -3350,7 +3301,6 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 		"id":                               "upcoming_in_" + strconv.FormatInt(now.Unix(), 10),
 		"object":                           "invoice",
 		"customer":                         emptyToNil(customerID),
-		"subscription":                     emptyToNil(subscription.ID),
 		"parent":                           stripeInvoiceParent(subscription.ID),
 		"amount_due":                       total,
 		"amount_paid":                      0,
@@ -3360,7 +3310,6 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 		"subtotal_excluding_tax":           subtotal,
 		"total":                            total,
 		"total_excluding_tax":              totalExcludingTax,
-		"discount":                         firstDiscountObject(h, discounts, customerID, subscription.ID, ""),
 		"discounts":                        discountObjects(h, discounts, customerID, subscription.ID, ""),
 		"total_discount_amounts":           discountAmounts(discounts, totalDiscountAmount),
 		"currency":                         currency,
@@ -3370,21 +3319,18 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 		"period_end":                       periodEndUnix,
 		"status":                           "draft",
 		"lines":                            stripeList(path+"/lines", lines),
-		"payments":                         stripeList(path+"/payments", []map[string]any{}),
 		"livemode":                         false,
 		"description":                      "Upcoming subscription invoice",
 		"account_country":                  nil,
 		"account_name":                     nil,
 		"account_tax_ids":                  nil,
 		"application":                      nil,
-		"application_fee_amount":           nil,
 		"attempt_count":                    0,
 		"attempted":                        false,
 		"auto_advance":                     false,
 		"automatic_tax":                    automaticTaxObj,
 		"automatically_finalizes_at":       nil,
 		"billing_reason":                   "upcoming",
-		"charge":                           nil,
 		"collection_method":                "charge_automatically",
 		"custom_fields":                    nil,
 		"default_payment_method":           nil,
@@ -3399,26 +3345,18 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 		"next_payment_attempt":             nil,
 		"number":                           nil,
 		"on_behalf_of":                     nil,
-		"paid":                             false,
-		"paid_out_of_band":                 false,
-		"payment_intent":                   nil,
 		"payment_settings":                 stripeInvoicePaymentSettings(),
 		"post_payment_credit_notes_amount": 0,
 		"pre_payment_credit_notes_amount":  0,
-		"quote":                            nil,
 		"receipt_number":                   nil,
 		"rendering":                        nil,
-		"rendering_options":                nil,
 		"shipping_cost":                    nil,
 		"shipping_details":                 nil,
 		"starting_balance":                 0,
 		"statement_descriptor":             nil,
 		"status_transitions":               stripeInvoiceStatusTransitions(nil, nil),
-		"tax":                              taxValue,
 		"test_clock":                       testClock,
-		"total_tax_amounts":                totalTaxAmounts,
 		"total_taxes":                      totalTaxes,
-		"transfer_data":                    nil,
 		"webhooks_delivered_at":            nil,
 		"emulator_preview": map[string]any{
 			"proration_behavior":       behavior,
@@ -3723,6 +3661,15 @@ func (h *Handler) handleInvoiceItems(w http.ResponseWriter, r *http.Request) {
 			item.Quantity = quantity
 			item.Amount = price.UnitAmount * quantity
 			item.Currency = price.Currency
+		} else if item.Amount >= 0 {
+			price, err := h.createAdHocPrice(r.Context(), item)
+			if err != nil {
+				writeResult(w, nil, err)
+				return
+			}
+			item.PriceID = price.ID
+			item.ProductID = price.ProductID
+			item.Quantity = 1
 		}
 		if item.TaxRates, err = h.appliedTaxRatesFromParams(p, "tax_rates"); err != nil {
 			writeResult(w, nil, err)
@@ -3747,6 +3694,16 @@ func (h *Handler) handleInvoiceItems(w http.ResponseWriter, r *http.Request) {
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
+}
+
+// createAdHocPrice backs an amount-only invoice item with an inactive price,
+// as Stripe does, so the item carries pricing details.
+func (h *Handler) createAdHocPrice(ctx context.Context, item billing.InvoiceItem) (billing.Price, error) {
+	product, err := h.billing.CreateProduct(ctx, billing.Product{Name: stringDefault(item.Description, "Invoice item")})
+	if err != nil {
+		return billing.Price{}, err
+	}
+	return h.billing.CreatePrice(ctx, billing.Price{ProductID: product.ID, Currency: item.Currency, UnitAmount: item.Amount})
 }
 
 func (h *Handler) handleInvoiceItem(w http.ResponseWriter, r *http.Request) {
@@ -3797,19 +3754,19 @@ func (h *Handler) handleInvoice(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := h.billing.FinalizeInvoice(r.Context(), id)
 		if err == nil {
-			h.emitGenericWebhook(r, "invoice.finalized", result.Invoice.ID, h.stripeInvoiceWithPaymentIntent(r.Context(), result.Invoice, result.PaymentIntent), webhooks.SourceAPI)
+			h.emitGenericWebhook(r, "invoice.finalized", result.Invoice.ID, h.stripeInvoice(r.Context(), result.Invoice), webhooks.SourceAPI)
 			if result.PaymentIntent.ID != "" {
 				h.emitPaymentIntentWebhook(r, "payment_intent.created", result.PaymentIntent)
 			}
 			// send_invoice collection: leave local email evidence after finalized (order: finalized → sent).
-			if stringDefault(result.Invoice.Metadata["collection_method"], "charge_automatically") == "send_invoice" {
+			if stringDefault(result.Invoice.Metadata[billing.MetadataCollectionMethod], "charge_automatically") == "send_invoice" {
 				if sent, sendErr := h.billing.SendInvoice(r.Context(), result.Invoice.ID); sendErr == nil {
 					result.Invoice = sent
 					h.emitGenericWebhook(r, "invoice.sent", sent.ID, h.stripeInvoice(r.Context(), sent), webhooks.SourceAPI)
 				}
 			}
 		}
-		writeResult(w, h.stripeInvoiceWithPaymentIntent(r.Context(), result.Invoice, result.PaymentIntent), err)
+		writeResult(w, h.stripeInvoice(r.Context(), result.Invoice), err)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "send" {
@@ -3860,7 +3817,7 @@ func (h *Handler) handleInvoice(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			h.emitInvoicePaymentWebhooks(r, result, webhooks.SourceAPI)
 		}
-		writeResult(w, h.stripeInvoiceWithPaymentIntent(r.Context(), result.Invoice, result.PaymentIntent), err)
+		writeResult(w, h.stripeInvoice(r.Context(), result.Invoice), err)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "void" {
@@ -6646,14 +6603,14 @@ func invoiceMetadataFromParams(p params) map[string]string {
 		param string
 		key   string
 	}{
-		{param: "description", key: "description"},
+		{param: "description", key: billing.MetadataInvoiceDescription},
 		{param: "default_payment_method", key: billing.MetadataDefaultPaymentMethod},
-		{param: "collection_method", key: "collection_method"},
-		{param: "auto_advance", key: "auto_advance"},
-		{param: "pending_invoice_items_behavior", key: "pending_invoice_items_behavior"},
-		{param: "days_until_due", key: "days_until_due"},
-		{param: "payment_settings[payment_method_types][]", key: "payment_method_types"},
-		{param: "payment_settings[payment_method_types][0]", key: "payment_method_types"},
+		{param: "collection_method", key: billing.MetadataCollectionMethod},
+		{param: "auto_advance", key: billing.MetadataAutoAdvance},
+		{param: "pending_invoice_items_behavior", key: billing.MetadataPendingInvoiceItemsBehavior},
+		{param: "days_until_due", key: billing.MetadataDaysUntilDue},
+		{param: "payment_settings[payment_method_types][]", key: billing.MetadataPaymentMethodTypes},
+		{param: "payment_settings[payment_method_types][0]", key: billing.MetadataPaymentMethodTypes},
 	} {
 		if value := p.string(item.param); value != "" {
 			if metadata == nil {
@@ -6673,7 +6630,7 @@ func copyPaymentSettingsMetadata(metadata map[string]string, p params) map[strin
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
-		metadata[key] = value
+		metadata[billing.MetadataPaymentSettingsPrefix+strings.TrimPrefix(key, "payment_settings")] = value
 	}
 	return metadata
 }
@@ -8166,27 +8123,7 @@ func resolvedSubscriptionItemID(sub billing.Subscription, item billing.LineItem,
 }
 
 func (h *Handler) stripeInvoice(ctx context.Context, invoice billing.Invoice) map[string]any {
-	var intent *billing.PaymentIntent
-	if invoice.PaymentIntentID != "" {
-		if pi, err := h.billing.GetPaymentIntent(ctx, invoice.PaymentIntentID); err == nil {
-			intent = &pi
-		}
-	}
-	return h.enrichStripeInvoice(ctx, invoice, stripeInvoiceWithPaymentIntentAndTaxRates(invoice, intent, h.stripeTaxRateObjects(invoice.DefaultTaxRates)))
-}
-
-func (h *Handler) stripeInvoiceWithPaymentIntent(ctx context.Context, invoice billing.Invoice, intent billing.PaymentIntent) map[string]any {
-	taxRates := h.stripeTaxRateObjects(invoice.DefaultTaxRates)
-	var payload map[string]any
-	if intent.ID == "" {
-		payload = stripeInvoiceWithPaymentIntentAndTaxRates(invoice, nil, taxRates)
-	} else {
-		payload = stripeInvoiceWithPaymentIntentAndTaxRates(invoice, &intent, taxRates)
-	}
-	return h.enrichStripeInvoice(ctx, invoice, payload)
-}
-
-func (h *Handler) enrichStripeInvoice(ctx context.Context, invoice billing.Invoice, payload map[string]any) map[string]any {
+	payload := stripeInvoiceWithTaxRates(invoice, h.stripeTaxRateObjects(invoice.DefaultTaxRates))
 	if invoice.ID == "" {
 		return payload
 	}
@@ -8196,6 +8133,11 @@ func (h *Handler) enrichStripeInvoice(ctx context.Context, invoice billing.Invoi
 	}
 	payload["lines"] = stripeInvoiceLines(invoice, items)
 	payload["post_payment_credit_notes_amount"] = h.invoicePostPaymentCreditNotesAmount(ctx, invoice)
+	if customer, err := h.billing.GetCustomer(ctx, invoice.CustomerID); err == nil {
+		payload["customer_email"] = emptyToNil(customer.Email)
+		payload["customer_name"] = emptyToNil(customer.Name)
+		payload["customer_phone"] = emptyToNil(customer.Phone)
+	}
 	return payload
 }
 
@@ -8229,26 +8171,17 @@ func (h *Handler) stripeInvoicePayments(ctx context.Context, invoice billing.Inv
 	return stripeInvoicePaymentRecords(invoice, intent)
 }
 
-func stripeInvoice(invoice billing.Invoice) map[string]any {
-	return stripeInvoiceWithPaymentIntent(invoice, nil)
-}
-
-func stripeInvoiceWithPaymentIntent(invoice billing.Invoice, intent *billing.PaymentIntent) map[string]any {
-	return stripeInvoiceWithPaymentIntentAndTaxRates(invoice, intent, nil)
-}
-
 // invoiceTaxBreakdown builds the v22 tax arrays for a post-discount base.
 // Used by confirmed invoices and invoice preview so amounts stay bit-identical.
 // pretax is total_excluding_tax; exclusiveTotal is added to base for grand total
 // (inclusive rates leave exclusiveTotal at 0 so total stays at base).
-func invoiceTaxBreakdown(base int64, rates []billing.AppliedTaxRate) (pretax, taxTotal, exclusiveTotal int64, totalTaxAmounts, totalTaxes []map[string]any) {
-	totalTaxAmounts = []map[string]any{}
+func invoiceTaxBreakdown(base int64, rates []billing.AppliedTaxRate) (pretax, taxTotal, exclusiveTotal int64, totalTaxes []map[string]any) {
 	totalTaxes = []map[string]any{}
 	if len(rates) == 0 {
 		if base < 0 {
 			base = 0
 		}
-		return base, 0, 0, totalTaxAmounts, totalTaxes
+		return base, 0, 0, totalTaxes
 	}
 	amounts, pretax, exclusiveTotal, taxTotal := billing.ComputeTaxRateAmounts(base, rates)
 	for _, entry := range amounts {
@@ -8256,12 +8189,6 @@ func invoiceTaxBreakdown(base int64, rates []billing.AppliedTaxRate) (pretax, ta
 		if entry.Rate.Inclusive {
 			behavior = "inclusive"
 		}
-		totalTaxAmounts = append(totalTaxAmounts, map[string]any{
-			"amount":            entry.Amount,
-			"inclusive":         entry.Rate.Inclusive,
-			"tax_rate":          entry.Rate.ID,
-			"taxability_reason": nil,
-		})
 		totalTaxes = append(totalTaxes, map[string]any{
 			"amount":            entry.Amount,
 			"tax_behavior":      behavior,
@@ -8271,52 +8198,22 @@ func invoiceTaxBreakdown(base int64, rates []billing.AppliedTaxRate) (pretax, ta
 			"type":              "tax_rate_details",
 		})
 	}
-	return pretax, taxTotal, exclusiveTotal, totalTaxAmounts, totalTaxes
+	return pretax, taxTotal, exclusiveTotal, totalTaxes
 }
 
-func stripeInvoiceWithPaymentIntentAndTaxRates(invoice billing.Invoice, intent *billing.PaymentIntent, taxRateObjects []map[string]any) map[string]any {
-	paidAt := optionalPaidAt(invoice)
-	finalizedAt := optionalFinalizedAt(invoice)
+func stripeInvoiceWithTaxRates(invoice billing.Invoice, defaultTaxRates []map[string]any) map[string]any {
 	created := unix(invoice.CreatedAt)
-	discounts := discountObjects(nil, invoice.Discounts, invoice.CustomerID, invoice.SubscriptionID, invoice.ID)
-	payments := stripeInvoicePaymentRecords(invoice, intent)
-	confirmationSecret := any(nil)
-	if invoice.PaymentIntentID != "" {
-		confirmationSecret = map[string]any{
-			"object":        "confirmation_secret",
-			"type":          "payment_intent",
-			"client_secret": invoice.PaymentIntentID + "_secret_emulator",
-		}
-	}
-	taxValue := any(nil)
-	if invoice.AutomaticTax || len(invoice.DefaultTaxRates) > 0 {
-		taxValue = invoice.Tax
-	}
+	draft := invoice.Status == "draft"
+	finalizedAt := optionalFinalizedAt(invoice)
 	totalExcludingTax := invoice.Total - invoice.Tax
-	totalTaxAmounts := []map[string]any{}
 	totalTaxes := []map[string]any{}
-	defaultTaxRates := taxRateObjects
-	if defaultTaxRates == nil {
-		defaultTaxRates = synthesizeTaxRateObjects(invoice.DefaultTaxRates)
-	}
 	if len(invoice.DefaultTaxRates) > 0 {
-		// Recompute per-rate amounts from the discounted pretax base.
 		base := invoice.Subtotal - invoice.DiscountAmount
 		if base < 0 {
 			base = 0
 		}
-		// For trialing invoices totals are zeroed while subtotal may also be zero.
-		pretax, _, _, tta, tt := invoiceTaxBreakdown(base, invoice.DefaultTaxRates)
-		totalExcludingTax = pretax
-		totalTaxAmounts = tta
-		totalTaxes = tt
+		totalExcludingTax, _, _, totalTaxes = invoiceTaxBreakdown(base, invoice.DefaultTaxRates)
 	} else if invoice.Tax > 0 {
-		totalTaxAmounts = []map[string]any{{
-			"amount":            invoice.Tax,
-			"inclusive":         false,
-			"tax_rate":          "txr_emulator_simulated",
-			"taxability_reason": "standard_rated",
-		}}
 		totalTaxes = []map[string]any{{
 			"amount":            invoice.Tax,
 			"tax_behavior":      "exclusive",
@@ -8326,85 +8223,104 @@ func stripeInvoiceWithPaymentIntentAndTaxRates(invoice billing.Invoice, intent *
 			"type":              "tax_rate_details",
 		}}
 	}
+	var endingBalance, hostedInvoiceURL, invoicePDF any
+	if !draft {
+		endingBalance = 0
+		hostedInvoiceURL = "/invoices/" + invoice.ID + "/hosted"
+		invoicePDF = "/invoices/" + invoice.ID + ".pdf"
+	}
 	return map[string]any{
 		"id":                               invoice.ID,
 		"object":                           billing.ObjectInvoice,
-		"customer":                         invoice.CustomerID,
-		"subscription":                     emptyToNil(invoice.SubscriptionID),
-		"parent":                           stripeInvoiceParent(invoice.SubscriptionID),
-		"status":                           invoice.Status,
-		"currency":                         invoice.Currency,
-		"subtotal":                         invoice.Subtotal,
-		"subtotal_excluding_tax":           invoice.Subtotal,
-		"discount":                         firstDiscountObject(nil, invoice.Discounts, invoice.CustomerID, invoice.SubscriptionID, invoice.ID),
-		"discounts":                        discounts,
-		"total_discount_amounts":           discountAmounts(invoice.Discounts, invoice.DiscountAmount),
-		"total":                            invoice.Total,
-		"total_excluding_tax":              totalExcludingTax,
+		"account_country":                  "US",
+		"account_name":                     "stripe-emulate",
+		"account_tax_ids":                  nil,
 		"amount_due":                       invoice.AmountDue,
+		"amount_overpaid":                  0,
 		"amount_paid":                      invoice.AmountPaid,
 		"amount_remaining":                 invoice.AmountDue,
 		"amount_shipping":                  0,
+		"application":                      nil,
 		"attempt_count":                    invoice.AttemptCount,
 		"attempted":                        invoice.AttemptCount > 0,
-		"auto_advance":                     false,
+		"auto_advance":                     invoice.Metadata[billing.MetadataAutoAdvance] == "true",
 		"automatic_tax":                    stripeInvoiceAutomaticTax(invoice.AutomaticTax),
 		"automatically_finalizes_at":       nil,
 		"billing_reason":                   stripeInvoiceBillingReason(invoice),
-		"collection_method":                stringDefault(invoice.Metadata["collection_method"], "charge_automatically"),
-		"description":                      emptyToNil(invoice.Metadata["description"]),
-		"next_payment_attempt":             optionalUnix(invoice.NextPaymentAttempt),
-		"payment_intent":                   emptyToNil(invoice.PaymentIntentID),
-		"payment_settings":                 stripeInvoicePaymentSettings(invoice.Metadata),
-		"payments":                         stripeList("/v1/invoices/"+invoice.ID+"/payments", payments),
-		"lines":                            stripeList("/v1/invoices/"+invoice.ID+"/lines", []map[string]any{}),
-		"confirmation_secret":              confirmationSecret,
+		"collection_method":                stringDefault(invoice.Metadata[billing.MetadataCollectionMethod], "charge_automatically"),
 		"created":                          created,
-		"created_at":                       invoice.CreatedAt,
-		"effective_at":                     nil,
-		"period_start":                     created,
-		"period_end":                       created,
-		"status_transitions":               stripeInvoiceStatusTransitions(finalizedAt, paidAt, optionalVoidedAt(invoice), optionalMarkedUncollectibleAt(invoice)),
-		"account_country":                  nil,
-		"account_name":                     nil,
-		"account_tax_ids":                  nil,
-		"application":                      nil,
-		"application_fee_amount":           nil,
-		"charge":                           nil,
+		"currency":                         invoice.Currency,
 		"custom_fields":                    nil,
+		"customer":                         invoice.CustomerID,
+		"customer_account":                 nil,
+		"customer_address":                 nil,
+		"customer_email":                   nil,
+		"customer_name":                    nil,
+		"customer_phone":                   nil,
+		"customer_shipping":                nil,
+		"customer_tax_exempt":              "none",
+		"customer_tax_ids":                 []any{},
 		"default_payment_method":           emptyToNil(invoice.Metadata[billing.MetadataDefaultPaymentMethod]),
 		"default_source":                   nil,
-		"default_tax_rates":                defaultTaxRates,
+		"default_tax_rates":                nonNilObjects(defaultTaxRates),
+		"description":                      emptyToNil(invoice.Metadata[billing.MetadataInvoiceDescription]),
+		"discounts":                        discountObjects(nil, invoice.Discounts, invoice.CustomerID, invoice.SubscriptionID, invoice.ID),
 		"due_date":                         invoiceDueDate(invoice),
-		"ending_balance":                   0,
+		"effective_at":                     finalizedAt,
+		"ending_balance":                   endingBalance,
 		"footer":                           nil,
 		"from_invoice":                     nil,
-		"hosted_invoice_url":               "/invoices/" + invoice.ID + "/hosted",
-		"invoice_pdf":                      "/invoices/" + invoice.ID + ".pdf",
+		"hosted_invoice_url":               hostedInvoiceURL,
+		"invoice_pdf":                      invoicePDF,
+		"issuer":                           map[string]any{"type": "self"},
 		"last_finalization_error":          nil,
-		"metadata":                         nonNilMap(invoice.Metadata),
+		"latest_revision":                  nil,
+		"lines":                            stripeList("/v1/invoices/"+invoice.ID+"/lines", []map[string]any{}),
+		"livemode":                         false,
+		"metadata":                         publicMetadata(invoice.Metadata),
+		"next_payment_attempt":             optionalUnix(invoice.NextPaymentAttempt),
 		"number":                           nil,
 		"on_behalf_of":                     nil,
-		"paid":                             invoice.Status == "paid",
-		"paid_out_of_band":                 false,
+		"parent":                           stripeInvoiceParent(invoice.SubscriptionID),
+		"payment_settings":                 stripeInvoicePaymentSettings(invoice.Metadata),
+		"period_end":                       created,
+		"period_start":                     created,
 		"post_payment_credit_notes_amount": 0,
 		"pre_payment_credit_notes_amount":  0,
-		"quote":                            nil,
 		"receipt_number":                   nil,
-		"rendering":                        nil,
-		"rendering_options":                nil,
+		"rendering":                        stripeInvoiceRendering(),
 		"shipping_cost":                    nil,
 		"shipping_details":                 nil,
 		"starting_balance":                 0,
 		"statement_descriptor":             nil,
-		"tax":                              taxValue,
+		"status":                           invoice.Status,
+		"status_transitions":               stripeInvoiceStatusTransitions(finalizedAt, optionalPaidAt(invoice), optionalVoidedAt(invoice), optionalMarkedUncollectibleAt(invoice)),
+		"subtotal":                         invoice.Subtotal,
+		"subtotal_excluding_tax":           invoice.Subtotal,
 		"test_clock":                       nil,
-		"total_tax_amounts":                totalTaxAmounts,
+		"total":                            invoice.Total,
+		"total_discount_amounts":           discountAmounts(invoice.Discounts, invoice.DiscountAmount),
+		"total_excluding_tax":              totalExcludingTax,
+		"total_pretax_credit_amounts":      []any{},
 		"total_taxes":                      totalTaxes,
-		"transfer_data":                    nil,
-		"webhooks_delivered_at":            nil,
-		"livemode":                         false,
+		"webhooks_delivered_at":            created,
 	}
+}
+
+func stripeInvoiceRendering() map[string]any {
+	return map[string]any{
+		"amount_tax_display": nil,
+		"pdf":                map[string]any{"page_size": "auto"},
+		"template":           nil,
+		"template_version":   nil,
+	}
+}
+
+func nonNilObjects(in []map[string]any) []map[string]any {
+	if in == nil {
+		return []map[string]any{}
+	}
+	return in
 }
 
 func stripeInvoiceItem(item billing.InvoiceItem) map[string]any {
@@ -8412,36 +8328,63 @@ func stripeInvoiceItem(item billing.InvoiceItem) map[string]any {
 	if quantity == 0 {
 		quantity = 1
 	}
-	out := map[string]any{
-		"id":           item.ID,
-		"object":       billing.ObjectInvoiceItem,
-		"customer":     item.CustomerID,
-		"invoice":      emptyToNil(item.InvoiceID),
-		"subscription": emptyToNil(item.SubscriptionID),
-		"amount":       item.Amount,
-		"currency":     item.Currency,
-		"description":  emptyToNil(item.Description),
-		"metadata":     nonNilMap(item.Metadata),
-		"tax_rates":    synthesizeTaxRateObjects(item.TaxRates),
-		"quantity":     quantity,
-		"created":      unix(item.CreatedAt),
-		"livemode":     false,
+	created := item.CreatedAt
+	start, end := item.PeriodStart, item.PeriodEnd
+	if start.IsZero() {
+		start = created
 	}
-	if item.PriceID != "" {
-		unitAmount := item.Amount
-		if quantity != 0 {
-			unitAmount = item.Amount / quantity
-		}
-		out["pricing"] = map[string]any{
-			"type": "price_details",
-			"price_details": map[string]any{
-				"price":   item.PriceID,
-				"product": item.ProductID,
+	if end.IsZero() {
+		end = start
+	}
+	var parent any
+	if item.SubscriptionID != "" {
+		parent = map[string]any{
+			"type": "subscription_details",
+			"subscription_details": map[string]any{
+				"subscription":      item.SubscriptionID,
+				"subscription_item": emptyToNil(item.SubscriptionItemID),
 			},
-			"unit_amount_decimal": strconv.FormatInt(unitAmount, 10),
 		}
 	}
-	return out
+	return map[string]any{
+		"id":               item.ID,
+		"object":           billing.ObjectInvoiceItem,
+		"amount":           item.Amount,
+		"currency":         item.Currency,
+		"customer":         item.CustomerID,
+		"customer_account": nil,
+		"date":             unix(created),
+		"description":      emptyToNil(item.Description),
+		"discountable":     !item.Proration,
+		"discounts":        []any{},
+		"frozen_fields":    []any{},
+		"invoice":          emptyToNil(item.InvoiceID),
+		"invoicing_rules":  []any{},
+		"livemode":         false,
+		"metadata":         publicMetadata(item.Metadata),
+		"parent":           parent,
+		"period":           map[string]any{"start": unix(start), "end": unix(end)},
+		"pricing":          stripeInvoiceItemPricing(item, quantity),
+		"proration":        item.Proration,
+		"quantity":         quantity,
+		"quantity_decimal": strconv.FormatInt(quantity, 10),
+		"tax_rates":        synthesizeTaxRateObjects(item.TaxRates),
+		"test_clock":       nil,
+	}
+}
+
+func stripeInvoiceItemPricing(item billing.InvoiceItem, quantity int64) any {
+	if item.PriceID == "" {
+		return nil
+	}
+	return map[string]any{
+		"type": "price_details",
+		"price_details": map[string]any{
+			"price":   item.PriceID,
+			"product": item.ProductID,
+		},
+		"unit_amount_decimal": strconv.FormatInt(item.Amount/quantity, 10),
+	}
 }
 
 func stripeInvoiceItemMaps(items []billing.InvoiceItem) []map[string]any {
@@ -8453,8 +8396,8 @@ func stripeInvoiceItemMaps(items []billing.InvoiceItem) []map[string]any {
 }
 
 // stripeInvoiceLines renders stored invoice items as invoice lines with the
-// line-only fields: period, proration, parent, and the invoice discount spread
-// over the positive lines in proportion to their amounts.
+// line-only fields: period, parent, and the invoice discount spread over the
+// positive lines in proportion to their amounts.
 func stripeInvoiceLines(invoice billing.Invoice, items []billing.InvoiceItem) map[string]any {
 	positive := int64(0)
 	lastPositive := -1
@@ -8467,16 +8410,7 @@ func stripeInvoiceLines(invoice billing.Invoice, items []billing.InvoiceItem) ma
 	allocated := int64(0)
 	data := make([]map[string]any, 0, len(items))
 	for idx, item := range items {
-		line := stripeInvoiceItem(item)
-		start, end := item.PeriodStart, item.PeriodEnd
-		if start.IsZero() {
-			start = item.CreatedAt
-		}
-		if end.IsZero() {
-			end = start
-		}
-		line["period"] = map[string]any{"start": unix(start), "end": unix(end)}
-		line["proration"] = item.Proration
+		invoiceItem := stripeInvoiceItem(item)
 		share := int64(0)
 		if item.Amount > 0 && invoice.DiscountAmount > 0 {
 			if idx == lastPositive {
@@ -8486,46 +8420,65 @@ func stripeInvoiceLines(invoice billing.Invoice, items []billing.InvoiceItem) ma
 			}
 			allocated += share
 		}
-		line["discount_amounts"] = []map[string]any{}
+		discountAmountsForLine := []map[string]any{}
 		if share > 0 {
-			line["discount_amounts"] = discountAmounts(invoice.Discounts, share)
+			discountAmountsForLine = discountAmounts(invoice.Discounts, share)
 		}
-		subscriptionID := firstNonEmptyString(item.SubscriptionID, invoice.SubscriptionID)
-		if subscriptionID != "" {
-			invoiceItem := any(nil)
+		parent := map[string]any{
+			"type": "invoice_item_details",
+			"invoice_item_details": map[string]any{
+				"invoice_item":      item.ID,
+				"proration":         item.Proration,
+				"proration_details": map[string]any{"credited_items": nil},
+				"subscription":      emptyToNil(item.SubscriptionID),
+			},
+			"license_fee_subscription_details": nil,
+			"subscription_item_details":        nil,
+		}
+		if subscriptionID := firstNonEmptyString(item.SubscriptionID, invoice.SubscriptionID); subscriptionID != "" && item.SubscriptionItemID != "" {
+			var prorationInvoiceItem any
 			if item.Proration {
-				invoiceItem = item.ID
+				prorationInvoiceItem = item.ID
 			}
-			line["parent"] = map[string]any{
-				"type":                 "subscription_item_details",
-				"invoice_item_details": nil,
-				"subscription_item_details": map[string]any{
-					"invoice_item":      invoiceItem,
-					"proration":         item.Proration,
-					"proration_details": map[string]any{"credited_items": nil},
-					"subscription":      subscriptionID,
-					"subscription_item": emptyToNil(item.SubscriptionItemID),
-				},
-			}
-		} else {
-			line["parent"] = map[string]any{
-				"type": "invoice_item_details",
-				"invoice_item_details": map[string]any{
-					"invoice_item":      item.ID,
-					"proration":         false,
-					"proration_details": map[string]any{"credited_items": nil},
-					"subscription":      nil,
-				},
-				"subscription_item_details": nil,
+			parent["type"] = "subscription_item_details"
+			parent["invoice_item_details"] = nil
+			parent["subscription_item_details"] = map[string]any{
+				"invoice_item":      prorationInvoiceItem,
+				"proration":         item.Proration,
+				"proration_details": map[string]any{"credited_items": nil},
+				"subscription":      subscriptionID,
+				"subscription_item": item.SubscriptionItemID,
 			}
 		}
-		data = append(data, line)
+		data = append(data, map[string]any{
+			"id":                    billing.InvoiceLineID(item.ID),
+			"object":                "line_item",
+			"amount":                item.Amount,
+			"currency":              item.Currency,
+			"description":           emptyToNil(item.Description),
+			"discount_amounts":      discountAmountsForLine,
+			"discountable":          !item.Proration,
+			"discounts":             []any{},
+			"invoice":               emptyToNil(invoice.ID),
+			"livemode":              false,
+			"metadata":              publicMetadata(item.Metadata),
+			"parent":                parent,
+			"period":                invoiceItem["period"],
+			"pretax_credit_amounts": []any{},
+			"pricing":               invoiceItem["pricing"],
+			"quantity":              invoiceItem["quantity"],
+			"quantity_decimal":      invoiceItem["quantity_decimal"],
+			"subtotal":              item.Amount,
+			"taxes":                 []any{},
+		})
 	}
-	return stripeList("/v1/invoices/"+invoice.ID+"/lines", data)
+	lines := stripeList("/v1/invoices/"+invoice.ID+"/lines", data)
+	lines["total_count"] = len(data)
+	return lines
 }
 
 func invoiceDueDate(invoice billing.Invoice) any {
-	raw := strings.TrimSpace(invoice.Metadata["days_until_due"])
+	raw := strings.TrimSpace(invoice.Metadata[billing.MetadataDaysUntilDue])
 	if raw == "" {
 		return nil
 	}
@@ -8540,10 +8493,9 @@ func stripeInvoicePaymentRecords(invoice billing.Invoice, intent *billing.Paymen
 	if invoice.PaymentIntentID == "" {
 		return []map[string]any{}
 	}
-	paymentIntent := any(invoice.PaymentIntentID)
+	paymentIntent := invoice.PaymentIntentID
 	status := invoicePaymentRecordStatus(invoice, "")
 	if intent != nil && intent.ID != "" {
-		paymentIntent = stripePaymentIntent(*intent)
 		status = invoicePaymentRecordStatus(invoice, intent.Status)
 	}
 	payment := map[string]any{
@@ -8583,7 +8535,10 @@ func invoicePaymentRecordStatus(invoice billing.Invoice, paymentIntentStatus str
 	}
 }
 
-func stripeInvoiceParent(subscriptionID string) map[string]any {
+func stripeInvoiceParent(subscriptionID string) any {
+	if subscriptionID == "" {
+		return nil
+	}
 	return map[string]any{
 		"type": "subscription_details",
 		"subscription_details": map[string]any{
@@ -8658,22 +8613,26 @@ func stripeInvoicePaymentSettings(metadata ...map[string]string) map[string]any 
 	var meta map[string]string
 	if len(metadata) > 0 {
 		meta = metadata[0]
-		if value := strings.TrimSpace(meta["payment_method_types"]); value != "" {
+		if value := strings.TrimSpace(meta[billing.MetadataPaymentMethodTypes]); value != "" {
 			paymentMethodTypes = []string{value}
 		}
 	}
-	return map[string]any{
-		"default_mandate": nil,
-		"payment_method_options": map[string]any{
+	var paymentMethodOptions any
+	if customerBalance := paymentSettingsCustomerBalance(meta); customerBalance != nil {
+		paymentMethodOptions = map[string]any{
 			"acss_debit":       nil,
 			"bancontact":       nil,
 			"card":             nil,
-			"customer_balance": paymentSettingsCustomerBalance(meta),
+			"customer_balance": customerBalance,
 			"konbini":          nil,
 			"sepa_debit":       nil,
 			"us_bank_account":  nil,
-		},
-		"payment_method_types": paymentMethodTypes,
+		}
+	}
+	return map[string]any{
+		"default_mandate":        nil,
+		"payment_method_options": paymentMethodOptions,
+		"payment_method_types":   paymentMethodTypes,
 	}
 }
 
@@ -8681,7 +8640,7 @@ func paymentSettingsCustomerBalance(meta map[string]string) any {
 	if len(meta) == 0 {
 		return nil
 	}
-	const prefix = "payment_settings[payment_method_options][customer_balance]"
+	const prefix = billing.MetadataPaymentSettingsPrefix + "[payment_method_options][customer_balance]"
 	root := map[string]any{}
 	found := false
 	for key, value := range meta {
@@ -10445,8 +10404,8 @@ func (h *Handler) checkoutWebhookPayloads(r *http.Request, result map[string]any
 		}
 	}
 	if invoice.ID != "" {
-		appendPayload("invoice.created", invoice.ID, stripeInvoice(invoice))
-		appendPayload("invoice.finalized", invoice.ID, stripeInvoice(invoice))
+		appendPayload("invoice.created", invoice.ID, h.stripeInvoice(r.Context(), invoice))
+		appendPayload("invoice.finalized", invoice.ID, h.stripeInvoice(r.Context(), invoice))
 	}
 	if paymentIntent.ID != "" {
 		appendPayload("payment_intent.created", paymentIntent.ID, stripePaymentIntent(paymentIntent))
@@ -10456,7 +10415,7 @@ func (h *Handler) checkoutWebhookPayloads(r *http.Request, result map[string]any
 	}
 	if invoice.ID != "" {
 		for _, eventType := range invoiceTerminalEvents(invoice.Status, paymentIntent.Status) {
-			appendPayload(eventType, invoice.ID, stripeInvoice(invoice))
+			appendPayload(eventType, invoice.ID, h.stripeInvoice(r.Context(), invoice))
 		}
 	}
 	if subscription.ID != "" {
@@ -10481,7 +10440,7 @@ func (h *Handler) invoicePaymentWebhookPayloads(r *http.Request, result billing.
 	}
 	if result.Invoice.ID != "" {
 		for _, eventType := range invoiceTerminalEvents(result.Invoice.Status, result.PaymentIntent.Status) {
-			appendPayload(eventType, result.Invoice.ID, stripeInvoice(result.Invoice))
+			appendPayload(eventType, result.Invoice.ID, h.stripeInvoice(r.Context(), result.Invoice))
 		}
 	}
 	if result.Subscription.ID != "" {
@@ -10502,8 +10461,8 @@ func (h *Handler) renewalWebhookPayloads(r *http.Request, result billing.Invoice
 		}
 	}
 	if result.Invoice.ID != "" {
-		appendPayload("invoice.created", result.Invoice.ID, stripeInvoice(result.Invoice))
-		appendPayload("invoice.finalized", result.Invoice.ID, stripeInvoice(result.Invoice))
+		appendPayload("invoice.created", result.Invoice.ID, h.stripeInvoice(r.Context(), result.Invoice))
+		appendPayload("invoice.finalized", result.Invoice.ID, h.stripeInvoice(r.Context(), result.Invoice))
 	}
 	if result.PaymentIntent.ID != "" {
 		appendPayload("payment_intent.created", result.PaymentIntent.ID, stripePaymentIntent(result.PaymentIntent))
@@ -10511,7 +10470,7 @@ func (h *Handler) renewalWebhookPayloads(r *http.Request, result billing.Invoice
 	}
 	if result.Invoice.ID != "" {
 		for _, eventType := range invoiceTerminalEvents(result.Invoice.Status, result.PaymentIntent.Status) {
-			appendPayload(eventType, result.Invoice.ID, stripeInvoice(result.Invoice))
+			appendPayload(eventType, result.Invoice.ID, h.stripeInvoice(r.Context(), result.Invoice))
 		}
 	}
 	if result.Subscription.ID != "" {

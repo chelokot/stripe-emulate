@@ -34,6 +34,17 @@ func newTestHandlerWithStore(t *testing.T) (http.Handler, *storage.SQLiteStore) 
 	return New(opts), store
 }
 
+// storedInvoiceMetadata reads emulator-internal invoice evidence that the API
+// keeps out of the public metadata.
+func storedInvoiceMetadata(t *testing.T, store *storage.SQLiteStore, invoiceID string) map[string]string {
+	t.Helper()
+	invoice, err := store.GetInvoice(context.Background(), invoiceID)
+	if err != nil {
+		t.Fatalf("get stored invoice %s: %v", invoiceID, err)
+	}
+	return invoice.Metadata
+}
+
 // Legacy rows with empty item IDs must still expose index-derived IDs and accept DELETE by them.
 func TestLegacySubscriptionItemIDsIndexDerived(t *testing.T) {
 	handler, store := newTestHandlerWithStore(t)
@@ -148,7 +159,7 @@ func TestLegacySubscriptionItemBackfillKeepsExposedIDs(t *testing.T) {
 
 // P1 path: items[0][id]=stored ID price swap still issues subscription_update invoice.
 func TestSubscriptionUpdateByStoredItemIDProration(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	created := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{

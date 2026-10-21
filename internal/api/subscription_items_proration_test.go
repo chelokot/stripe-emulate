@@ -56,7 +56,7 @@ func setupSeatPlans(t *testing.T, handler http.Handler) (customer billing.Custom
 
 // 1. Seat add + always_invoice: 9900 base + VAT10%, add 1000×2 → delta 2000 / tax 200 / total 2200.
 func TestSubscriptionItemCreateAlwaysInvoiceSeatAdd(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, base, seat, taxRateID := setupSeatPlans(t, handler)
 
 	created := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{
@@ -544,7 +544,7 @@ func TestSubscriptionItemDeleteQueryStringParamsParsed(t *testing.T) {
 
 // 11. Item tax_rates evidence on create; totals use subscription default_tax_rates only.
 func TestSubscriptionItemCreateTaxRatesEvidenceOnly(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, base, seat, subTaxID := setupSeatPlans(t, handler)
 	// Different item-level rate (20%) — must NOT affect totals if only evidence.
 	itemTxr := postForm[struct {

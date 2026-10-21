@@ -27,7 +27,7 @@ func setupDraftInvoiceWithLine(t *testing.T, handler http.Handler) (customer bil
 		"currency":    {"usd"},
 		"description": {"Original"},
 	})
-	return customer, invoice.ID, line.ID
+	return customer, invoice.ID, billing.InvoiceLineID(line.ID)
 }
 
 func TestInvoiceSingleLineUpdate(t *testing.T) {
@@ -81,7 +81,7 @@ func TestInvoiceSingleLineUpdate(t *testing.T) {
 }
 
 func TestInvoiceAttachPayment(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 	customer, invoiceID, _ := setupDraftInvoiceWithLine(t, handler)
 
 	intent := postForm[struct {
@@ -105,13 +105,11 @@ func TestInvoiceAttachPayment(t *testing.T) {
 		t.Fatalf("attach_payment unknown intent status = %d body = %s, want 404", status, body)
 	}
 
-	attached := postForm[struct {
-		Metadata map[string]string `json:"metadata"`
-	}](t, handler, "/v1/invoices/"+invoiceID+"/attach_payment", url.Values{
+	_ = postForm[map[string]any](t, handler, "/v1/invoices/"+invoiceID+"/attach_payment", url.Values{
 		"payment_intent": {intent.ID},
 	})
-	if attached.Metadata["emulator_attached_payment_intent"] != intent.ID {
-		t.Fatalf("attach_payment metadata = %#v, want recorded %s", attached.Metadata, intent.ID)
+	if metadata := storedInvoiceMetadata(t, store, invoiceID); metadata["emulator_attached_payment_intent"] != intent.ID {
+		t.Fatalf("attach_payment metadata = %#v, want recorded %s", metadata, intent.ID)
 	}
 }
 

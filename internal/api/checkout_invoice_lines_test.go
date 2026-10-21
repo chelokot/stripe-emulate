@@ -259,7 +259,7 @@ func TestInvoiceLineMutation(t *testing.T) {
 
 	// update_lines patches a line by id and recomputes totals.
 	updated := postForm[invoiceState](t, handler, "/v1/invoices/"+invoice.ID+"/update_lines", url.Values{
-		"line_items[0][id]":          {first.ID},
+		"line_items[0][id]":          {billing.InvoiceLineID(first.ID)},
 		"line_items[0][amount]":      {"3000"},
 		"line_items[0][description]": {"First (revised)"},
 	})
@@ -291,7 +291,7 @@ func TestInvoiceLineMutation(t *testing.T) {
 
 	// remove_lines detaches a line and recomputes totals.
 	removed := postForm[invoiceState](t, handler, "/v1/invoices/"+invoice.ID+"/remove_lines", url.Values{
-		"line_items[0][id]": {first.ID},
+		"line_items[0][id]": {billing.InvoiceLineID(first.ID)},
 	})
 	if removed.Subtotal != 2000 || removed.Total != 2000 || removed.AmountDue != 2000 {
 		t.Fatalf("after remove_lines = %#v, want 2000", removed)

@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1130,11 +1131,18 @@ func (s *Service) findInvoiceLine(ctx context.Context, invoice Invoice, lineID s
 		return InvoiceItem{}, err
 	}
 	for _, item := range items {
-		if item.ID == lineID {
+		if InvoiceLineID(item.ID) == lineID {
 			return item, nil
 		}
 	}
-	return InvoiceItem{}, ErrNotFound
+	return InvoiceItem{}, &NotFoundError{Message: fmt.Sprintf("No such invoice line item: '%s'", lineID), Param: "line_item_id"}
+}
+
+// InvoiceLineID derives the stable il_ id an invoice item renders with as an
+// invoice line.
+func InvoiceLineID(invoiceItemID string) string {
+	sum := sha256.Sum256([]byte(invoiceItemID))
+	return "il_" + hex.EncodeToString(sum[:12])
 }
 
 // UpdateInvoiceLine patches one attached draft-invoice line
@@ -1364,7 +1372,7 @@ func (s *Service) CreateInvoiceItem(ctx context.Context, in InvoiceItem) (Invoic
 }
 
 func (s *Service) attachPendingInvoiceItems(ctx context.Context, invoice Invoice) (Invoice, error) {
-	if !strings.EqualFold(strings.TrimSpace(invoice.Metadata["pending_invoice_items_behavior"]), "include") {
+	if !strings.EqualFold(strings.TrimSpace(invoice.Metadata[MetadataPendingInvoiceItemsBehavior]), "include") {
 		return invoice, nil
 	}
 	pending, err := s.repo.ListInvoiceItemsFiltered(ctx, InvoiceItemFilter{CustomerID: invoice.CustomerID, Pending: true})

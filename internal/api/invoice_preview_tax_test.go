@@ -39,7 +39,7 @@ func taxPtr(v int64) *int64 { return &v }
 // TestInvoicePreviewTaxMatchesConfirmedInvoice is the core contract:
 // create_preview numbers must equal the confirmed always_invoice proration invoice.
 func TestInvoicePreviewTaxMatchesConfirmedInvoice(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	created := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{
@@ -98,7 +98,7 @@ func TestInvoicePreviewTaxMatchesConfirmedInvoice(t *testing.T) {
 
 // TestInvoicePreviewTaxDecimalPercentMatchesConfirmed: 8.875% mid-period must round identically.
 func TestInvoicePreviewTaxDecimalPercentMatchesConfirmed(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, _ := setupProrationPlans(t, handler)
 	txr := postForm[struct {
 		ID string `json:"id"`
@@ -151,7 +151,7 @@ func TestInvoicePreviewTaxDecimalPercentMatchesConfirmed(t *testing.T) {
 
 // TestInvoicePreviewInclusiveTaxMatchesConfirmed: inclusive 10% → total stays at base.
 func TestInvoicePreviewInclusiveTaxMatchesConfirmed(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, _ := setupProrationPlans(t, handler)
 	txr := postForm[struct {
 		ID string `json:"id"`
@@ -201,7 +201,7 @@ func TestInvoicePreviewInclusiveTaxMatchesConfirmed(t *testing.T) {
 
 // TestInvoicePreviewDiscountAndTaxMatchesConfirmed: 25% coupon then 10% VAT on discounted base.
 func TestInvoicePreviewDiscountAndTaxMatchesConfirmed(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 	coupon := postForm[struct {
 		ID string `json:"id"`
@@ -280,7 +280,7 @@ func TestInvoicePreviewNoTaxRatesKeepsNilTax(t *testing.T) {
 
 // TestInvoicePreviewPriceIDFormMatchesPrice: [price_id] must equal [price] for proration+tax.
 func TestInvoicePreviewPriceIDFormMatchesPrice(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	created := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{

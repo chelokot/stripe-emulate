@@ -79,7 +79,7 @@ func taxVal(p upcomingPreviewFields) int64 {
 // TestUpcomingNextPeriodWithTaxNoParams: GET /v1/invoices/upcoming?subscription=…
 // with default_tax_rates must return next-cycle invoice (not zero proration).
 func TestUpcomingNextPeriodWithTaxNoParams(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, _, taxRateID := setupProrationPlans(t, handler)
 
 	sub := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{
@@ -121,7 +121,7 @@ func TestUpcomingNextPeriodWithTaxNoParams(t *testing.T) {
 // TestCreatePreviewNextPeriodSubscriptionOnly: POST create_preview with only
 // customer+subscription matches GET upcoming (no item overrides).
 func TestCreatePreviewNextPeriodSubscriptionOnly(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, _, taxRateID := setupProrationPlans(t, handler)
 
 	sub := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{
@@ -150,7 +150,7 @@ func TestCreatePreviewNextPeriodSubscriptionOnly(t *testing.T) {
 
 // TestUpcomingItemOverrideKeepsProrationPath: item override → subscription_update + proration.
 func TestUpcomingItemOverrideKeepsProrationPath(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	created := postForm[prorationSubResponse](t, handler, "/v1/subscriptions", url.Values{
@@ -185,7 +185,7 @@ func TestUpcomingItemOverrideKeepsProrationPath(t *testing.T) {
 
 // TestUpcomingNextPeriodMultiItem: base 4900 + seat 1000×2 → subtotal 6900, 2 lines.
 func TestUpcomingNextPeriodMultiItem(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"multi-upcoming@example.test"}})
 	product := postForm[billing.Product](t, handler, "/v1/products", url.Values{"name": {"Multi Upcoming"}})
 	base := postForm[billing.Price](t, handler, "/v1/prices", url.Values{
@@ -239,7 +239,7 @@ func TestUpcomingNextPeriodMultiItem(t *testing.T) {
 
 // TestUpcomingNextPeriodDiscountAndTax: 25% coupon + 10% tax, tax after discount.
 func TestUpcomingNextPeriodDiscountAndTax(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"disc-upcoming@example.test"}})
 	product := postForm[billing.Product](t, handler, "/v1/products", url.Values{"name": {"Disc Upcoming"}})
 	price := postForm[billing.Price](t, handler, "/v1/prices", url.Values{
@@ -290,7 +290,7 @@ func TestUpcomingNextPeriodDiscountAndTax(t *testing.T) {
 // TestUpcomingNextPeriodIncludesPendingProration: create_prorations pending is
 // added to upcoming subtotal but not consumed; renewal invoice matches upcoming.
 func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	periodStart := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -390,7 +390,7 @@ func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
 
 // TestUpcomingNextPeriodTrialingUsesTrialEnd: period_start is trial_end.
 func TestUpcomingNextPeriodTrialingUsesTrialEnd(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer, lite, _, taxRateID := setupProrationPlans(t, handler)
 
 	trialEnd := time.Date(2030, 2, 15, 0, 0, 0, 0, time.UTC)

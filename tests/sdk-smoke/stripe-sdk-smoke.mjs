@@ -603,7 +603,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
 
     const invoice = await stripe.invoices.retrieve(completedSession.invoice);
     assertEqual(
-      invoice.subscription,
+      invoice.parent?.subscription_details?.subscription,
       subscription.id,
       "retrieved invoice subscription",
     );
@@ -852,7 +852,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
         },
       });
       assertEqual(preview.subtotal, 5000, "tax preview subtotal");
-      assertEqual(preview.tax, 500, "tax preview tax");
+      assertEqual(invoiceTax(preview), 500, "tax preview tax");
       assertEqual(preview.total, 5500, "tax preview total");
       assertEqual(
         preview.total_excluding_tax,
@@ -883,7 +883,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
           : updated.latest_invoice?.id;
       const invoice = await stripe.invoices.retrieve(invoiceId);
       assertEqual(invoice.subtotal, preview.subtotal, "confirmed subtotal == preview");
-      assertEqual(invoice.tax, preview.tax, "confirmed tax == preview");
+      assertEqual(invoiceTax(invoice), invoiceTax(preview), "confirmed tax == preview");
       assertEqual(invoice.total, preview.total, "confirmed total == preview");
       assertEqual(
         invoice.total_excluding_tax,
@@ -929,7 +929,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
       });
       assertEqual(preview.billing_reason, "upcoming", "next-period billing_reason");
       assertEqual(preview.subtotal, 4900, "next-period subtotal");
-      assertEqual(preview.tax, 490, "next-period tax");
+      assertEqual(invoiceTax(preview), 490, "next-period tax");
       assertEqual(preview.total, 5390, "next-period total");
       assertEqual(
         preview.total_taxes?.[0]?.amount,
@@ -937,7 +937,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
         "next-period total_taxes[0].amount",
       );
       assertEqual(
-        preview.lines?.data?.[0]?.proration,
+        preview.lines?.data?.[0]?.parent?.subscription_item_details?.proration,
         false,
         "next-period line not proration",
       );
@@ -1002,7 +1002,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
       const invoice = await stripe.invoices.retrieve(invoiceId);
       // Full remaining period: seat delta 2000, tax 200, total 2200
       assertEqual(invoice.subtotal, 2000, "seat proration subtotal");
-      assertEqual(invoice.tax, 200, "seat proration tax");
+      assertEqual(invoiceTax(invoice), 200, "seat proration tax");
       assertEqual(invoice.total, 2200, "seat proration total");
       assertEqual(
         invoice.billing_reason,
@@ -1348,6 +1348,10 @@ function assert(value, message) {
   if (!value) {
     throw new Error(message);
   }
+}
+
+function invoiceTax(invoice) {
+  return invoice.total_taxes.reduce((sum, tax) => sum + tax.amount, 0);
 }
 
 function assertEqual(actual, expected, label) {

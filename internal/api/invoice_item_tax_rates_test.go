@@ -10,7 +10,7 @@ import (
 )
 
 func TestInvoiceItemTaxRatesTaxTheInvoice(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"ii-tax@example.test"}})
 	product := postForm[map[string]any](t, handler, "/v1/products", url.Values{"name": {"Extra export"}})
 	price := postForm[map[string]any](t, handler, "/v1/prices", url.Values{"product": {fmt.Sprint(product["id"])}, "currency": {"usd"}, "unit_amount": {"10000"}})
@@ -37,7 +37,7 @@ func TestInvoiceItemTaxRatesTaxTheInvoice(t *testing.T) {
 	}
 
 	postForm[map[string]any](t, handler, "/v1/invoices/"+invoiceID+"/finalize", url.Values{})
-	paid := postForm[map[string]any](t, handler, "/v1/invoices/"+invoiceID+"/pay", url.Values{})
+	paid := postForm[map[string]any](t, handler, "/v1/invoices/"+invoiceID+"/pay", url.Values{"expand[]": {"payments"}})
 	for field, want := range map[string]int64{"subtotal": 10000, "tax": 1000, "total": 11000, "amount_paid": 11000} {
 		if got, _ := paid[field].(float64); int64(got) != want {
 			t.Fatalf("paid invoice %s=%v, want %d (status=%v)", field, paid[field], want, paid["status"])
@@ -52,7 +52,7 @@ func TestChargeLookupFromPaymentIntent(t *testing.T) {
 	invoiceID := fmt.Sprint(invoice["id"])
 	postForm[map[string]any](t, handler, "/v1/invoiceitems", url.Values{"customer": {customer.ID}, "invoice": {invoiceID}, "amount": {"10000"}, "currency": {"usd"}})
 	postForm[map[string]any](t, handler, "/v1/invoices/"+invoiceID+"/finalize", url.Values{})
-	paid := postForm[map[string]any](t, handler, "/v1/invoices/"+invoiceID+"/pay", url.Values{})
+	paid := postForm[map[string]any](t, handler, "/v1/invoices/"+invoiceID+"/pay", url.Values{"expand[]": {"payments"}})
 
 	payments, _ := paid["payments"].(map[string]any)
 	data, _ := payments["data"].([]any)
@@ -60,7 +60,8 @@ func TestChargeLookupFromPaymentIntent(t *testing.T) {
 	if payment["type"] != "payment_intent" {
 		t.Fatalf("payment=%#v, want type payment_intent", payment)
 	}
-	piID := fmt.Sprint(paid["payment_intent"])
+	paymentIntent, _ := payment["payment_intent"].(string)
+	piID := paymentIntent
 	pi := getJSON[map[string]any](t, handler, "/v1/payment_intents/"+piID)
 	chargeID, _ := pi["latest_charge"].(string)
 	if chargeID == "" {

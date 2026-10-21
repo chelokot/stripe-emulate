@@ -142,7 +142,7 @@ func TestFixturePromotionCodeMissingCoupon(t *testing.T) {
 
 // Subscription default_tax_rates injection: first invoice taxed + proration tax.
 func TestFixtureSubscriptionDefaultTaxRatesAndProration(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 
 	pack := map[string]any{
 		"name": "sub-tax",
@@ -280,7 +280,7 @@ func TestFixtureSubscriptionUnknownTaxRate(t *testing.T) {
 
 // First invoice is taxed when default_tax_rates are injected at checkout session create.
 func TestFixtureSubscriptionFirstInvoiceTaxed(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 
 	_ = postJSON[fixtures.ApplyResult](t, handler, "/api/fixtures/apply", map[string]any{
 		"name": "first-inv-taxed",
@@ -342,7 +342,7 @@ func TestFixtureSubscriptionFirstInvoiceTaxed(t *testing.T) {
 
 // Coupon + tax seeded together: discount then exclusive tax on first invoice (7425/743/8168).
 func TestFixtureSubscriptionCouponAndTaxFirstInvoice(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 
 	_ = postJSON[fixtures.ApplyResult](t, handler, "/api/fixtures/apply", map[string]any{
 		"name": "coupon-tax-first",

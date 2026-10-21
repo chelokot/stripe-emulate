@@ -226,7 +226,7 @@ function recordInvoice(invoice, eventType) {
     last_event_type: eventType,
   };
 
-  const subscriptionID = stringValue(invoice.subscription);
+  const subscriptionID = stringValue(invoice.parent?.subscription_details?.subscription);
   const subscription = appState.subscriptions[subscriptionID];
   if (!subscription) {
     return;

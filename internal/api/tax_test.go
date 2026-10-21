@@ -163,7 +163,7 @@ func TestCustomerTaxIDsEvidenceCRUD(t *testing.T) {
 }
 
 func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 
 	// Price 7000, amount-off coupon 1000 → discounted 6000, tax 10% = 600, total 6600.
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
@@ -420,7 +420,7 @@ func TestCheckoutWithoutAutomaticTaxKeepsZeroTax(t *testing.T) {
 }
 
 func TestDefaultTaxRatesCheckoutInvoiceAndSubscription(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 		"email": {"default-tax@example.test"},
@@ -500,7 +500,7 @@ func TestDefaultTaxRatesCheckoutInvoiceAndSubscription(t *testing.T) {
 }
 
 func TestDefaultTaxRatesInclusiveAndMixed(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"incl-tax@example.test"}})
 	product := postForm[billing.Product](t, handler, "/v1/products", url.Values{"name": {"Incl Plan"}})
 	price := postForm[billing.Price](t, handler, "/v1/prices", url.Values{
@@ -623,7 +623,7 @@ func TestDefaultTaxRatesWithCoupon(t *testing.T) {
 }
 
 func TestDefaultTaxRatesRenewal(t *testing.T) {
-	handler := newTestHandler(t)
+	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
 	_ = postForm[map[string]any](t, handler, "/v1/test_helpers/test_clocks", url.Values{
 		"id":          {"clock_default_tax"},
 		"frozen_time": {strconv.FormatInt(time.Date(2033, 1, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)},
