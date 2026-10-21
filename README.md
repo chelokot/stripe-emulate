@@ -7,19 +7,14 @@ Not affiliated with Stripe. Fork of [Billtap](https://github.com/midagedev/billt
 ## Run
 
 ```bash
-npm ci && npm run build
-go run ./cmd/stripe-emulate
+docker run --rm -p 8080:8080 ghcr.io/chelokot/stripe-emulate
 ```
 
 ```js
 const stripe = new Stripe("sk_test_emulator", { host: "localhost", port: 8080, protocol: "http" });
 ```
 
-Or with Docker:
-
-```bash
-docker build -t stripe-emulate . && docker run -p 8080:8080 stripe-emulate
-```
+Without Docker, `go run github.com/chelokot/stripe-emulate/cmd/stripe-emulate@latest` serves the API alone, without the hosted checkout, portal and dashboard pages. From a checkout: `npm ci && npm run build && go run ./cmd/stripe-emulate`.
 
 ## Parity
 
