@@ -468,6 +468,9 @@ func (h *Handler) handleCustomerSubscriptions(w http.ResponseWriter, r *http.Req
 		writeResult(w, stripeListFromRequest(r, data), nil)
 	case http.MethodPost:
 		subscription, err := h.createSubscriptionFromParamsWithCustomer(r, customerID)
+		if err == nil {
+			h.emitSubscriptionCreatedWebhooks(r, subscription)
+		}
 		writeResult(w, h.stripeSubscription(r, subscription), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
@@ -1684,6 +1687,7 @@ func (h *Handler) handleCheckoutSessions(w http.ResponseWriter, r *http.Request)
 			DefaultTaxRates:          defaultTaxRates,
 			ClientReferenceID:        p.string("client_reference_id"),
 			Metadata:                 p.metadata(),
+			SubscriptionMetadata:     p.prefixedMetadata("subscription_data[metadata]["),
 			PaymentIntentMetadata:    p.paymentIntentDataMetadata(),
 			SetupFutureUsage:         p.string("payment_intent_data[setup_future_usage]"),
 			PaymentIntentDescription: p.string("payment_intent_data[description]"),
@@ -1853,7 +1857,7 @@ func (h *Handler) handleCheckoutSessionLineItems(w http.ResponseWriter, r *http.
 		data = append(data, map[string]any{
 			"id":                  "li_" + hex.EncodeToString(lineItemID[:12]),
 			"object":              "item",
-			"adjustable_quantity": nil,
+			"adjustable_quantity": stripeAdjustableQuantity(item.AdjustableQuantity),
 			"currency":            strings.ToLower(currency),
 			"quantity":            quantity,
 			"amount_subtotal":     amount,
@@ -2167,6 +2171,9 @@ func (h *Handler) handleSubscriptions(w http.ResponseWriter, r *http.Request) {
 		writeResult(w, stripeListFromRequest(r, data), nil)
 	case http.MethodPost:
 		subscription, err := h.createSubscriptionFromParams(r)
+		if err == nil {
+			h.emitSubscriptionCreatedWebhooks(r, subscription)
+		}
 		writeResult(w, h.stripeSubscription(r, subscription), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
@@ -2291,8 +2298,14 @@ func (h *Handler) createSubscriptionFromParamsWithCustomer(r *http.Request, defa
 		}
 		metadata[billing.MetadataTestClock] = testClockID
 	}
-	for _, key := range []string{"collection_method", "days_until_due", "cancel_at", "billing_cycle_anchor", "proration_behavior"} {
-		if value := p.string(key); value != "" {
+	for param, key := range map[string]string{
+		"collection_method":    billing.MetadataCollectionMethod,
+		"days_until_due":       billing.MetadataDaysUntilDue,
+		"cancel_at":            billing.MetadataCancelAt,
+		"billing_cycle_anchor": billing.MetadataBillingCycleAnchor,
+		"proration_behavior":   billing.MetadataProrationBehavior,
+	} {
+		if value := p.string(param); value != "" {
 			if metadata == nil {
 				metadata = map[string]string{}
 			}
@@ -2423,7 +2436,7 @@ func (h *Handler) handleSubscription(w http.ResponseWriter, r *http.Request) {
 			if metadata == nil {
 				metadata = map[string]string{}
 			}
-			metadata["trial_end"] = trialEndAt.Format(time.RFC3339Nano)
+			metadata[billing.MetadataTrialEnd] = trialEndAt.Format(time.RFC3339Nano)
 		}
 		prorationBehavior := p.string("proration_behavior")
 		if prorationBehavior == "" {
@@ -2499,7 +2512,7 @@ func (h *Handler) handleSubscription(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cancel := billing.PortalCancel{Mode: "immediate", Metadata: map[string]string{}}
-		for param, key := range map[string]string{"cancellation_details[comment]": "cancellation_details_comment", "cancellation_details[feedback]": "cancellation_details_feedback"} {
+		for param, key := range map[string]string{"cancellation_details[comment]": billing.MetadataCancellationComment, "cancellation_details[feedback]": billing.MetadataCancellationFeedback} {
 			if value := p.string(param); value != "" {
 				cancel.Metadata[key] = value
 			}
@@ -2536,7 +2549,7 @@ func (h *Handler) handleSubscriptionMigrate(w http.ResponseWriter, r *http.Reque
 		writeResult(w, nil, err)
 		return
 	}
-	metadata := map[string]string{"emulator_billing_mode": p.string("billing_mode[type]")}
+	metadata := map[string]string{billing.MetadataBillingMode: p.string("billing_mode[type]")}
 	if discounts := p.string("billing_mode[flexible][proration_discounts]"); discounts != "" {
 		metadata["emulator_proration_discounts"] = discounts
 	}
@@ -2564,8 +2577,8 @@ func (h *Handler) handleSubscriptionResume(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	metadata := map[string]string{
-		"pause_collection_behavior":   "",
-		"pause_collection_resumes_at": "",
+		billing.MetadataPauseCollectionBehavior:  "",
+		billing.MetadataPauseCollectionResumesAt: "",
 	}
 	subscription, err := h.billing.PatchSubscription(r.Context(), subscriptionID, billing.SubscriptionPatch{
 		Metadata:        metadata,
@@ -3374,7 +3387,7 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 }
 
 func subscriptionTrialEndTime(sub billing.Subscription) time.Time {
-	raw := strings.TrimSpace(sub.Metadata["trial_end"])
+	raw := strings.TrimSpace(sub.Metadata[billing.MetadataTrialEnd])
 	if raw == "" {
 		return time.Time{}
 	}
@@ -6929,9 +6942,10 @@ func (h *Handler) resolveCheckoutLineItems(ctx context.Context, p params) ([]bil
 	var out []billing.LineItem
 	for _, idx := range ordered {
 		quantity := p.int64Default(fmt.Sprintf("line_items[%d][quantity]", idx), 1)
+		adjustable := p.adjustableQuantity(idx)
 		priceID := p.first(fmt.Sprintf("line_items[%d][price]", idx), fmt.Sprintf("lineItems[%d][price]", idx))
 		if priceID != "" {
-			out = append(out, billing.LineItem{PriceID: priceID, Quantity: quantity})
+			out = append(out, billing.LineItem{PriceID: priceID, Quantity: quantity, AdjustableQuantity: adjustable})
 			continue
 		}
 		if !p.hasPriceData(idx) {
@@ -6941,12 +6955,29 @@ func (h *Handler) resolveCheckoutLineItems(ctx context.Context, p params) ([]bil
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, billing.LineItem{PriceID: created.ID, Quantity: quantity})
+		out = append(out, billing.LineItem{PriceID: created.ID, Quantity: quantity, AdjustableQuantity: adjustable})
 	}
 	if len(out) == 0 && p.has("price") {
 		return p.lineItems(), nil
 	}
 	return out, nil
+}
+
+func (p params) adjustableQuantity(idx int) *billing.AdjustableQuantity {
+	prefix := fmt.Sprintf("line_items[%d][adjustable_quantity]", idx)
+	if !p.hasAny(prefix+"[enabled]", prefix+"[minimum]", prefix+"[maximum]") {
+		return nil
+	}
+	adjustable := &billing.AdjustableQuantity{Enabled: p.boolDefault(prefix+"[enabled]", false)}
+	if p.has(prefix + "[minimum]") {
+		minimum := p.int64(prefix + "[minimum]")
+		adjustable.Minimum = &minimum
+	}
+	if p.has(prefix + "[maximum]") {
+		maximum := p.int64(prefix + "[maximum]")
+		adjustable.Maximum = &maximum
+	}
+	return adjustable
 }
 
 func (h *Handler) createPriceFromCheckoutPriceData(ctx context.Context, p params, idx int) (billing.Price, error) {
@@ -7984,6 +8015,20 @@ func (h *Handler) stripeCheckoutSession(r *http.Request, session billing.Checkou
 	return out
 }
 
+func stripeAdjustableQuantity(adjustable *billing.AdjustableQuantity) any {
+	if adjustable == nil {
+		return nil
+	}
+	out := map[string]any{"enabled": adjustable.Enabled, "maximum": nil, "minimum": nil}
+	if adjustable.Maximum != nil {
+		out["maximum"] = *adjustable.Maximum
+	}
+	if adjustable.Minimum != nil {
+		out["minimum"] = *adjustable.Minimum
+	}
+	return out
+}
+
 func openSessionURL(session billing.CheckoutSession) any {
 	if session.Status != "open" {
 		return nil
@@ -8037,21 +8082,21 @@ func (h *Handler) stripeSubscription(r *http.Request, sub billing.Subscription) 
 		"customer":             sub.CustomerID,
 		"status":               sub.Status,
 		"items":                stripeList("/v1/subscription_items?subscription="+sub.ID, items),
-		"billing_mode":         map[string]any{"flexible": nil, "type": "classic"},
+		"billing_mode":         subscriptionBillingMode(sub),
 		"created":              unix(sub.CreatedAt),
 		"start_date":           unix(sub.CreatedAt),
 		"cancel_at_period_end": sub.CancelAtPeriodEnd,
 		"canceled_at":          optionalUnix(sub.CanceledAt),
 		"cancel_at":            subscriptionCancelAt(sub),
-		"ended_at":             metadataUnix(sub.Metadata["ended_at"]),
-		"trial_start":          metadataUnix(sub.Metadata["trial_start"]),
-		"trial_end":            metadataUnix(sub.Metadata["trial_end"]),
+		"ended_at":             metadataUnix(sub.Metadata[billing.MetadataEndedAt]),
+		"trial_start":          metadataUnix(sub.Metadata[billing.MetadataTrialStart]),
+		"trial_end":            metadataUnix(sub.Metadata[billing.MetadataTrialEnd]),
 		"latest_invoice":       emptyToNil(sub.LatestInvoiceID),
 		"discounts":            discountObjects(h, discounts, sub.CustomerID, sub.ID, ""),
 		"invoice_settings":     map[string]any{"account_tax_ids": nil, "issuer": map[string]any{"type": "self"}},
 		"test_clock":           emptyToNil(sub.Metadata[billing.MetadataTestClock]),
-		"metadata":             nonNilMap(sub.Metadata),
-		"collection_method":    stringDefault(sub.Metadata["collection_method"], "charge_automatically"),
+		"metadata":             publicMetadata(sub.Metadata),
+		"collection_method":    stringDefault(sub.Metadata[billing.MetadataCollectionMethod], "charge_automatically"),
 		"billing_cycle_anchor": unix(sub.CurrentPeriodStart),
 		"currency":             "usd",
 		"livemode":             false,
@@ -8061,6 +8106,13 @@ func (h *Handler) stripeSubscription(r *http.Request, sub billing.Subscription) 
 		"automatic_tax":        stripeSubscriptionAutomaticTax(automaticTax),
 		"default_tax_rates":    defaultTaxRateObjects,
 	}
+}
+
+func subscriptionBillingMode(sub billing.Subscription) map[string]any {
+	if sub.Metadata[billing.MetadataBillingMode] == "flexible" {
+		return map[string]any{"flexible": map[string]any{"proration_discounts": "included"}, "type": "flexible"}
+	}
+	return map[string]any{"flexible": nil, "type": "classic"}
 }
 
 func synthesizeTaxRateObjects(rates []billing.AppliedTaxRate) []map[string]any {
@@ -8075,18 +8127,18 @@ func synthesizeTaxRateObjects(rates []billing.AppliedTaxRate) []map[string]any {
 }
 
 func subscriptionPauseCollection(sub billing.Subscription) any {
-	behavior := strings.TrimSpace(sub.Metadata["pause_collection_behavior"])
+	behavior := strings.TrimSpace(sub.Metadata[billing.MetadataPauseCollectionBehavior])
 	if behavior == "" {
 		return nil
 	}
 	return map[string]any{
 		"behavior":   behavior,
-		"resumes_at": metadataUnix(sub.Metadata["pause_collection_resumes_at"]),
+		"resumes_at": metadataUnix(sub.Metadata[billing.MetadataPauseCollectionResumesAt]),
 	}
 }
 
 func subscriptionCancelAt(sub billing.Subscription) any {
-	if value := metadataUnix(sub.Metadata["cancel_at"]); value != nil {
+	if value := metadataUnix(sub.Metadata[billing.MetadataCancelAt]); value != nil {
 		return value
 	}
 	if sub.CancelAtPeriodEnd {
@@ -8097,8 +8149,8 @@ func subscriptionCancelAt(sub billing.Subscription) any {
 
 func subscriptionCancellationDetails(sub billing.Subscription) map[string]any {
 	return map[string]any{
-		"comment":  emptyToNil(sub.Metadata["cancellation_details_comment"]),
-		"feedback": emptyToNil(sub.Metadata["cancellation_details_feedback"]),
+		"comment":  emptyToNil(sub.Metadata[billing.MetadataCancellationComment]),
+		"feedback": emptyToNil(sub.Metadata[billing.MetadataCancellationFeedback]),
 		"reason":   nil,
 	}
 }
@@ -9533,13 +9585,13 @@ func subscriptionUpdateMetadata(p params) map[string]string {
 		param string
 		key   string
 	}{
-		{param: "cancellation_details[comment]", key: "cancellation_details_comment"},
-		{param: "cancellation_details[feedback]", key: "cancellation_details_feedback"},
-		{param: "proration_behavior", key: "proration_behavior"},
-		{param: "proration_date", key: "proration_date"},
-		{param: "payment_behavior", key: "payment_behavior"},
-		{param: "billing_cycle_anchor", key: "billing_cycle_anchor"},
-		{param: "cancel_at", key: "cancel_at"},
+		{param: "cancellation_details[comment]", key: billing.MetadataCancellationComment},
+		{param: "cancellation_details[feedback]", key: billing.MetadataCancellationFeedback},
+		{param: "proration_behavior", key: billing.MetadataProrationBehavior},
+		{param: "proration_date", key: billing.MetadataProrationDate},
+		{param: "payment_behavior", key: billing.MetadataPaymentBehavior},
+		{param: "billing_cycle_anchor", key: billing.MetadataBillingCycleAnchor},
+		{param: "cancel_at", key: billing.MetadataCancelAt},
 	} {
 		if value := p.string(item.param); value != "" {
 			if metadata == nil {
@@ -9552,16 +9604,16 @@ func subscriptionUpdateMetadata(p params) map[string]string {
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
-		metadata["pause_collection_behavior"] = value
+		metadata[billing.MetadataPauseCollectionBehavior] = value
 		if resumesAt := p.string("pause_collection[resumes_at]"); resumesAt != "" {
-			metadata["pause_collection_resumes_at"] = resumesAt
+			metadata[billing.MetadataPauseCollectionResumesAt] = resumesAt
 		}
 	} else if _, ok := p.values["pause_collection"]; ok {
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
-		metadata["pause_collection_behavior"] = ""
-		metadata["pause_collection_resumes_at"] = ""
+		metadata[billing.MetadataPauseCollectionBehavior] = ""
+		metadata[billing.MetadataPauseCollectionResumesAt] = ""
 	}
 	return metadata
 }
@@ -10117,6 +10169,16 @@ func (h *Handler) emitInvoicePaymentWebhooks(r *http.Request, result billing.Inv
 		}
 	}
 	return emitted
+}
+
+// emitSubscriptionCreatedWebhooks sends what Stripe sends for POST
+// /v1/subscriptions: customer.subscription.created, then the first invoice and
+// its payment.
+func (h *Handler) emitSubscriptionCreatedWebhooks(r *http.Request, subscription billing.Subscription) {
+	h.emitSubscriptionWebhook(r, "customer.subscription.created", subscription, webhooks.SourceAPI)
+	if invoice, intent := h.subscriptionInvoicePaymentEvidence(r, subscription); invoice.ID != "" {
+		h.emitRenewalWebhooks(r, billing.InvoicePaymentResult{Invoice: invoice, PaymentIntent: intent}, webhooks.SourceAPI)
+	}
 }
 
 func (h *Handler) emitRenewalWebhooks(r *http.Request, result billing.InvoicePaymentResult, source string) []webhooks.Event {

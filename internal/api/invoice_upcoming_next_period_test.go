@@ -290,7 +290,8 @@ func TestUpcomingNextPeriodDiscountAndTax(t *testing.T) {
 // TestUpcomingNextPeriodIncludesPendingProration: create_prorations pending is
 // added to upcoming subtotal but not consumed; renewal invoice matches upcoming.
 func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
-	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
+	handler, store := newTestHandlerWithStore(t)
+	handler = withStripeVersion(handler, legacyStripeVersion)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	periodStart := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -332,7 +333,7 @@ func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
 		"proration_date":       {strconv.FormatInt(mid.Unix(), 10)},
 		"default_tax_rates[0]": {taxRateID},
 	})
-	pendingRaw := updated.Metadata[billing.MetadataPendingProrationAmount]
+	pendingRaw := storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount]
 	pending, err := strconv.ParseInt(pendingRaw, 10, 64)
 	if err != nil || pending == 0 {
 		t.Fatalf("pending metadata = %q, want non-zero int", pendingRaw)
@@ -349,9 +350,8 @@ func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
 	assertInvoiceInvariant(t, preview)
 
 	// Preview must not consume pending metadata.
-	still := getJSON[prorationSubResponse](t, handler, "/v1/subscriptions/"+updated.ID)
-	if still.Metadata[billing.MetadataPendingProrationAmount] != pendingRaw {
-		t.Fatalf("pending after preview = %q, want still %q", still.Metadata[billing.MetadataPendingProrationAmount], pendingRaw)
+	if still := storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount]; still != pendingRaw {
+		t.Fatalf("pending after preview = %q, want still %q", still, pendingRaw)
 	}
 
 	advance := postForm[struct {

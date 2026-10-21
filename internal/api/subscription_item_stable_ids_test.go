@@ -34,6 +34,17 @@ func newTestHandlerWithStore(t *testing.T) (http.Handler, *storage.SQLiteStore) 
 	return withStripeSchemaCheck(t, New(opts), store), store
 }
 
+// storedSubscriptionMetadata reads emulator-internal subscription state that
+// the API keeps out of the public metadata.
+func storedSubscriptionMetadata(t *testing.T, store *storage.SQLiteStore, subscriptionID string) map[string]string {
+	t.Helper()
+	subscription, err := store.GetSubscription(context.Background(), subscriptionID)
+	if err != nil {
+		t.Fatalf("get stored subscription %s: %v", subscriptionID, err)
+	}
+	return subscription.Metadata
+}
+
 // storedInvoiceMetadata reads emulator-internal invoice evidence that the API
 // keeps out of the public metadata.
 func storedInvoiceMetadata(t *testing.T, store *storage.SQLiteStore, invoiceID string) map[string]string {

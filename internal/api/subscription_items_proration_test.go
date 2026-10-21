@@ -109,7 +109,7 @@ func TestSubscriptionItemCreateAlwaysInvoiceSeatAdd(t *testing.T) {
 
 // 2. Seat add + create_prorations: no invoice; pending accumulates; renewal absorbs it.
 func TestSubscriptionItemCreateCreateProrationsDefersToRenewal(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 	customer, base, seat, taxRateID := setupSeatPlans(t, handler)
 
 	// Fixed clock so proration_date mid-period and renewal advance are deterministic.
@@ -146,8 +146,8 @@ func TestSubscriptionItemCreateCreateProrationsDefersToRenewal(t *testing.T) {
 		t.Fatalf("create_prorations created invoice: before=%d after=%d", len(before), len(after))
 	}
 	updated := getJSON[prorationSubResponse](t, handler, "/v1/subscriptions/"+created.ID)
-	if updated.Metadata[billing.MetadataPendingProrationAmount] != strconv.FormatInt(wantPending, 10) {
-		t.Fatalf("pending = %q, want %d", updated.Metadata[billing.MetadataPendingProrationAmount], wantPending)
+	if storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount] != strconv.FormatInt(wantPending, 10) {
+		t.Fatalf("pending = %q, want %d", storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount], wantPending)
 	}
 
 	advance := postForm[struct {
@@ -313,7 +313,7 @@ func TestSubscriptionItemDeleteAlwaysInvoiceNoInvoiceOnDowngrade(t *testing.T) {
 
 // 7. DELETE + create_prorations: negative pending; next renewal deducts it.
 func TestSubscriptionItemDeleteCreateProrationsNegativePending(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 	customer, base, seat, taxRateID := setupSeatPlans(t, handler)
 
 	_ = postForm[map[string]any](t, handler, "/v1/test_helpers/test_clocks", url.Values{
@@ -347,8 +347,8 @@ func TestSubscriptionItemDeleteCreateProrationsNegativePending(t *testing.T) {
 		"proration_date":     {strconv.FormatInt(mid, 10)},
 	})
 	updated := getJSON[prorationSubResponse](t, handler, "/v1/subscriptions/"+created.ID)
-	if updated.Metadata[billing.MetadataPendingProrationAmount] != strconv.FormatInt(wantPending, 10) {
-		t.Fatalf("pending = %q, want %d (negative)", updated.Metadata[billing.MetadataPendingProrationAmount], wantPending)
+	if storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount] != strconv.FormatInt(wantPending, 10) {
+		t.Fatalf("pending = %q, want %d (negative)", storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount], wantPending)
 	}
 	if wantPending >= 0 {
 		t.Fatalf("expected negative pending, got %d", wantPending)

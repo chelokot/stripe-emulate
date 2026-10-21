@@ -559,11 +559,11 @@ func (s *Service) upsertSubscription(ctx context.Context, pack Pack, fixture Sub
 	}
 	if strings.TrimSpace(fixture.TrialStart) != "" {
 		metadata = ensureStringMap(metadata)
-		metadata["trial_start"] = strings.TrimSpace(fixture.TrialStart)
+		metadata[billing.MetadataTrialStart] = strings.TrimSpace(fixture.TrialStart)
 	}
 	if strings.TrimSpace(fixture.TrialEnd) != "" {
 		metadata = ensureStringMap(metadata)
-		metadata["trial_end"] = strings.TrimSpace(fixture.TrialEnd)
+		metadata[billing.MetadataTrialEnd] = strings.TrimSpace(fixture.TrialEnd)
 	}
 	if len(discounts) > 0 {
 		metadata = billing.MergeDiscountMetadata(metadata, discounts)
@@ -1336,7 +1336,7 @@ func subscriptionStatePatch(fixture SubscriptionFixture, metadata map[string]str
 			return patch, err
 		}
 		metadata = ensureStringMap(metadata)
-		metadata["trial_start"] = value
+		metadata[billing.MetadataTrialStart] = value
 		patch.Metadata = metadata
 	}
 	if value := strings.TrimSpace(fixture.TrialEnd); value != "" {
@@ -1344,7 +1344,7 @@ func subscriptionStatePatch(fixture SubscriptionFixture, metadata map[string]str
 			return patch, err
 		}
 		metadata = ensureStringMap(metadata)
-		metadata["trial_end"] = value
+		metadata[billing.MetadataTrialEnd] = value
 		patch.Metadata = metadata
 	}
 	if value := strings.TrimSpace(fixture.CancelAt); value != "" {
@@ -1352,7 +1352,7 @@ func subscriptionStatePatch(fixture SubscriptionFixture, metadata map[string]str
 			return patch, err
 		}
 		metadata = ensureStringMap(metadata)
-		metadata["cancel_at"] = value
+		metadata[billing.MetadataCancelAt] = value
 		patch.Metadata = metadata
 		trueValue := true
 		patch.CancelAtPeriodEnd = &trueValue
@@ -1369,7 +1369,7 @@ func subscriptionStatePatch(fixture SubscriptionFixture, metadata map[string]str
 			return patch, err
 		}
 		metadata = ensureStringMap(metadata)
-		metadata["ended_at"] = value
+		metadata[billing.MetadataEndedAt] = value
 		patch.Metadata = metadata
 		if patch.CanceledAt == nil {
 			parsed, _ := parseFixtureTime(value)

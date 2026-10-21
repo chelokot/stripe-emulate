@@ -16,7 +16,8 @@ import (
 // create/GET round-trip, discount math (exact + round), applies_to, validation,
 // tax composition, metadata renewal snapshot, and JSON integer backward-compat.
 func TestPercentOffDecimalSupport(t *testing.T) {
-	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
+	handler, store := newTestHandlerWithStore(t)
+	handler = withStripeVersion(handler, legacyStripeVersion)
 
 	// --- 1. percent_off=12.5 create → GET 12.5; integer 50 stays 50 ---
 	decimalCoupon := postForm[map[string]any](t, handler, "/v1/coupons", url.Values{
@@ -188,8 +189,8 @@ func TestPercentOffDecimalSupport(t *testing.T) {
 		"discounts[0][coupon]": {roundCoupon.ID},
 		"test_clock":           {"clock_decimal_round"},
 	})
-	if subRound.Metadata[billing.MetadataDiscountPercentOff] != "10.5" {
-		t.Fatalf("subscription metadata percent_off = %q, want 10.5", subRound.Metadata[billing.MetadataDiscountPercentOff])
+	if storedSubscriptionMetadata(t, store, subRound.ID)[billing.MetadataDiscountPercentOff] != "10.5" {
+		t.Fatalf("subscription metadata percent_off = %q, want 10.5", storedSubscriptionMetadata(t, store, subRound.ID)[billing.MetadataDiscountPercentOff])
 	}
 	advanceRound := postForm[struct {
 		EmulatorAdvanceResult struct {

@@ -142,12 +142,14 @@ func TestSubscriptionMigrate(t *testing.T) {
 	}
 
 	migrated := postForm[struct {
-		ID       string            `json:"id"`
-		Metadata map[string]string `json:"metadata"`
+		ID          string `json:"id"`
+		BillingMode struct {
+			Type string `json:"type"`
+		} `json:"billing_mode"`
 	}](t, handler, "/v1/subscriptions/"+subscription.ID+"/migrate", url.Values{
 		"billing_mode[type]": {"flexible"},
 	})
-	if migrated.ID != subscription.ID || migrated.Metadata["emulator_billing_mode"] != "flexible" {
+	if migrated.ID != subscription.ID || migrated.BillingMode.Type != "flexible" {
 		t.Fatalf("migrated subscription = %#v, want billing_mode=flexible evidence", migrated)
 	}
 }

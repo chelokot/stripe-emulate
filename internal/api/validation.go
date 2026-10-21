@@ -22,6 +22,7 @@ var (
 	enabledEventsParamRE  = regexp.MustCompile(`^enabled_events(\[[^\]]*\])?$`)
 	retryBackoffParamRE   = regexp.MustCompile(`^retry_backoff(\[[^\]]*\])?$`)
 	checkoutLineItemRE    = regexp.MustCompile(`^line_items\[(\d+)\]\[(price|quantity)\]$`)
+	checkoutAdjustableRE  = regexp.MustCompile(`^line_items\[\d+\]\[adjustable_quantity\]\[(enabled|minimum|maximum)\]$`)
 	legacyLineItemParamRE = regexp.MustCompile(`^lineItems\[(\d+)\]\[(price|quantity)\]$`)
 	// price_data nested keys for payment-mode one-off line items (Stripe Checkout Sessions).
 	checkoutPriceDataRE            = regexp.MustCompile(`^line_items\[(\d+)\]\[price_data\]\[(currency|unit_amount|unit_amount_decimal|tax_behavior|product)\]$`)
@@ -35,7 +36,7 @@ var (
 	checkoutInvoiceDataRE       = regexp.MustCompile(`^invoice_creation\[invoice_data\](\[(description|footer)\]|\[metadata\]\[[^\]]+\])$`)
 	// Accept trial_period_days and default_tax_rates in [] / [N] forms
 	// (firstValues leaves single-value [] keys unexpanded).
-	checkoutSubscriptionDataRE = regexp.MustCompile(`^subscription_data\[(trial_period_days|default_tax_rates)\](\[\d*\])?$`)
+	checkoutSubscriptionDataRE = regexp.MustCompile(`^subscription_data\[(trial_period_days|default_tax_rates)\](\[\d*\])?$|^subscription_data\[metadata\]\[[^\]]+\]$`)
 	defaultTaxRatesParamRE     = regexp.MustCompile(`^default_tax_rates(\[\d*\])?$`)
 	// Item-level tax_rates on subscription_items create: evidence only (not used for totals).
 	taxRatesParamRE           = regexp.MustCompile(`^tax_rates(\[\d*\])?$`)
@@ -793,6 +794,7 @@ func validateCheckoutSessionCreate(p params) error {
 			checkoutSubscriptionDataRE,
 			checkoutInvoiceDataRE,
 			checkoutLineTaxRatesRE,
+			checkoutAdjustableRE,
 			discountParamRE,
 		},
 		AllowMetadata: true,
@@ -830,6 +832,15 @@ func validateCheckoutSessionCreate(p params) error {
 		quantityKey := fmt.Sprintf("line_items[%d][quantity]", idx)
 		if err := p.validateMin(quantityKey, 1); err != nil {
 			return err
+		}
+		adjustableKey := fmt.Sprintf("line_items[%d][adjustable_quantity]", idx)
+		if err := p.validateBool(adjustableKey + "[enabled]"); err != nil {
+			return err
+		}
+		for _, bound := range []string{"[minimum]", "[maximum]"} {
+			if err := p.validateMin(adjustableKey+bound, 0); err != nil {
+				return err
+			}
 		}
 		priceKey := fmt.Sprintf("line_items[%d][price]", idx)
 		hasPrice := p.has(priceKey)

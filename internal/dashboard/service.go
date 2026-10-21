@@ -706,7 +706,7 @@ func checkoutSessionRelated(cs billing.CheckoutSession) map[string]string {
 func subscriptionRelated(sub billing.Subscription) map[string]string {
 	return compactMap(map[string]string{
 		billing.ObjectInvoice:         sub.LatestInvoiceID,
-		billing.ObjectCheckoutSession: sub.Metadata["checkout_session"],
+		billing.ObjectCheckoutSession: sub.Metadata[billing.MetadataCheckoutSession],
 	})
 }
 

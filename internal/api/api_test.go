@@ -2856,7 +2856,7 @@ func TestSupportedEndpointRequestValidation(t *testing.T) {
 		if err := json.Unmarshal(completion["subscription"], &sub); err != nil {
 			t.Fatalf("decode subscription: %v", err)
 		}
-		if sub.Status != "trialing" || sub.Metadata["trial_period_days"] != "14" {
+		if sub.Status != "trialing" || sub.Metadata[billing.MetadataTrialPeriodDays] != "14" {
 			t.Fatalf("subscription = %#v, want trialing with trial metadata", sub)
 		}
 	})
@@ -4290,7 +4290,7 @@ func TestDiscountApplicationAcrossCheckoutPreviewRenewalAndDelete(t *testing.T) 
 }
 
 func TestCouponAppliesToProductsAndCheckoutSessionAmounts(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 		"email": {"scoped-coupon@example.test"},
@@ -4485,8 +4485,8 @@ func TestCouponAppliesToProductsAndCheckoutSessionAmounts(t *testing.T) {
 		"discounts[0][coupon]": {scopedOnlyMatch.ID},
 		"test_clock":           {"clock_scoped"},
 	})
-	if subscription.Metadata[billing.MetadataDiscountAppliesTo] != productMatch.ID {
-		t.Fatalf("subscription discount metadata applies_to = %#v, want %s", subscription.Metadata[billing.MetadataDiscountAppliesTo], productMatch.ID)
+	if storedSubscriptionMetadata(t, store, subscription.ID)[billing.MetadataDiscountAppliesTo] != productMatch.ID {
+		t.Fatalf("subscription discount metadata applies_to = %#v, want %s", storedSubscriptionMetadata(t, store, subscription.ID)[billing.MetadataDiscountAppliesTo], productMatch.ID)
 	}
 	advance := postForm[struct {
 		EmulatorAdvanceResult struct {
@@ -4922,7 +4922,7 @@ func TestStripeCompatCatalogAndPortalEndpoints(t *testing.T) {
 }
 
 func TestSubscriptionUpdatePreservesItemsAndSupportsAdditiveSeatItems(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 		"email": {"paid-update@example.test"},
@@ -5000,8 +5000,8 @@ func TestSubscriptionUpdatePreservesItemsAndSupportsAdditiveSeatItems(t *testing
 	if len(upgraded.Items.Data) != 1 || upgraded.Items.Data[0].Price.ID != proYearly.ID {
 		t.Fatalf("upgraded items = %#v, want existing item price replaced", upgraded.Items.Data)
 	}
-	if upgraded.Metadata["proration_date"] != "1894752000" || upgraded.Metadata["payment_behavior"] != "error_if_incomplete" {
-		t.Fatalf("upgraded metadata = %#v, want accepted proration/payment behavior params", upgraded.Metadata)
+	if storedSubscriptionMetadata(t, store, upgraded.ID)[billing.MetadataProrationDate] != "1894752000" || storedSubscriptionMetadata(t, store, upgraded.ID)[billing.MetadataPaymentBehavior] != "error_if_incomplete" {
+		t.Fatalf("upgraded metadata = %#v, want accepted proration/payment behavior params", storedSubscriptionMetadata(t, store, upgraded.ID))
 	}
 
 	withSeats := postForm[subscriptionResponse](t, handler, "/v1/subscriptions/"+created.ID, url.Values{
@@ -7877,7 +7877,7 @@ func TestCheckoutSessionExpire(t *testing.T) {
 }
 
 func TestSubscriptionCreateProrationBehaviorAndPaymentSettings(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 	customer, price := seedCustomerAndPrice(t, handler, "create-params@example.test", "Create Params")
 	created := postForm[struct {
 		ID       string            `json:"id"`
@@ -7893,14 +7893,14 @@ func TestSubscriptionCreateProrationBehaviorAndPaymentSettings(t *testing.T) {
 	if created.Status != "active" {
 		t.Fatalf("created = %#v, want active", created)
 	}
-	if created.Metadata["proration_behavior"] != "create_prorations" {
-		t.Fatalf("proration_behavior metadata = %#v, want create_prorations", created.Metadata)
+	if storedSubscriptionMetadata(t, store, created.ID)[billing.MetadataProrationBehavior] != "create_prorations" {
+		t.Fatalf("proration_behavior metadata = %#v, want create_prorations", storedSubscriptionMetadata(t, store, created.ID))
 	}
-	if created.Metadata["emulator_payment_settings[payment_method_types][0]"] != "card" {
-		t.Fatalf("payment_settings metadata = %#v, want types card", created.Metadata)
+	if storedSubscriptionMetadata(t, store, created.ID)["emulator_payment_settings[payment_method_types][0]"] != "card" {
+		t.Fatalf("payment_settings metadata = %#v, want types card", storedSubscriptionMetadata(t, store, created.ID))
 	}
-	if created.Metadata["emulator_payment_settings[payment_method_options][customer_balance][funding_type]"] != "bank_transfer" {
-		t.Fatalf("customer_balance metadata = %#v, want funding_type", created.Metadata)
+	if storedSubscriptionMetadata(t, store, created.ID)["emulator_payment_settings[payment_method_options][customer_balance][funding_type]"] != "bank_transfer" {
+		t.Fatalf("customer_balance metadata = %#v, want funding_type", storedSubscriptionMetadata(t, store, created.ID))
 	}
 	status, body := postFormStatus(t, handler, "/v1/subscriptions", url.Values{
 		"customer":           {customer.ID},

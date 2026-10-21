@@ -163,7 +163,8 @@ func TestCustomerTaxIDsEvidenceCRUD(t *testing.T) {
 }
 
 func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
-	handler := withStripeVersion(newTestHandler(t), legacyStripeVersion)
+	handler, store := newTestHandlerWithStore(t)
+	handler = withStripeVersion(handler, legacyStripeVersion)
 
 	// Price 7000, amount-off coupon 1000 → discounted 6000, tax 10% = 600, total 6600.
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
@@ -265,8 +266,8 @@ func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
 		Metadata map[string]string `json:"metadata"`
 		AutoTax  map[string]any    `json:"automatic_tax"`
 	}](t, handler, "/v1/subscriptions/"+completed.SubscriptionID)
-	if subscription.Metadata[billing.MetadataAutomaticTax] != "true" || subscription.Metadata[billing.MetadataTaxPercent] != "10" {
-		t.Fatalf("subscription tax metadata = %#v", subscription.Metadata)
+	if storedSubscriptionMetadata(t, store, subscription.ID)[billing.MetadataAutomaticTax] != "true" || storedSubscriptionMetadata(t, store, subscription.ID)[billing.MetadataTaxPercent] != "10" {
+		t.Fatalf("subscription tax metadata = %#v", storedSubscriptionMetadata(t, store, subscription.ID))
 	}
 	if subscription.AutoTax["enabled"] != true || subscription.AutoTax["disabled_reason"] != nil || subscription.AutoTax["liability"] != nil {
 		t.Fatalf("subscription automatic_tax = %#v, want enabled with null liability/disabled_reason", subscription.AutoTax)
@@ -325,8 +326,8 @@ func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
 		"automatic_tax[enabled]": {"true"},
 		"test_clock":             {"clock_tax"},
 	})
-	if sub.Metadata[billing.MetadataAutomaticTax] != "true" || sub.Metadata[billing.MetadataTaxPercent] != "10" {
-		t.Fatalf("direct subscription tax metadata = %#v", sub.Metadata)
+	if metadata := storedSubscriptionMetadata(t, store, sub.ID); metadata[billing.MetadataAutomaticTax] != "true" || metadata[billing.MetadataTaxPercent] != "10" {
+		t.Fatalf("direct subscription tax metadata = %#v", metadata)
 	}
 	firstInvoice := getJSON[map[string]any](t, handler, "/v1/invoices/"+sub.LatestInvoice)
 	if firstInvoice["total"] != float64(6600) || firstInvoice["tax"] != float64(600) {

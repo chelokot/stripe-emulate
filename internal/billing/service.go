@@ -647,6 +647,8 @@ func (s *Service) completeCheckout(ctx context.Context, sessionID string, outcom
 		invoiceAttemptCount = *outcomeSpec.InvoiceAttemptCount
 	}
 
+	subscriptionMetadata := copyMap(session.SubscriptionMetadata)
+	subscriptionMetadata[MetadataCheckoutSession] = session.ID
 	sub := Subscription{
 		ID:                 firstNonEmpty(opts.SubscriptionID, id("sub")),
 		Object:             ObjectSubscription,
@@ -655,16 +657,16 @@ func (s *Service) completeCheckout(ctx context.Context, sessionID string, outcom
 		Items:              session.LineItems,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   periodEnd,
-		Metadata:           map[string]string{"checkout_session": session.ID},
+		Metadata:           subscriptionMetadata,
 	}
 	sub.Metadata = MergeDiscountMetadata(sub.Metadata, discounts)
 	sub.Metadata = MergeTaxMetadata(sub.Metadata, session.AutomaticTax, session.TaxPercent)
 	sub.Metadata = MergeDefaultTaxRatesMetadata(sub.Metadata, session.DefaultTaxRates)
 	if trialing {
 		sub.Status = "trialing"
-		sub.Metadata["trial_period_days"] = fmt.Sprintf("%d", session.TrialPeriodDays)
-		sub.Metadata["trial_start"] = now.Format(time.RFC3339Nano)
-		sub.Metadata["trial_end"] = periodEnd.Format(time.RFC3339Nano)
+		sub.Metadata[MetadataTrialPeriodDays] = fmt.Sprintf("%d", session.TrialPeriodDays)
+		sub.Metadata[MetadataTrialStart] = now.Format(time.RFC3339Nano)
+		sub.Metadata[MetadataTrialEnd] = periodEnd.Format(time.RFC3339Nano)
 	}
 	invoice := Invoice{
 		ID:              firstNonEmpty(opts.InvoiceID, id("in")),
@@ -937,7 +939,7 @@ func (s *Service) PatchSubscription(ctx context.Context, subscriptionID string, 
 	if patch.CancelAtPeriodEnd != nil {
 		sub.Metadata = copyMap(sub.Metadata)
 		sub.CancelAtPeriodEnd = *patch.CancelAtPeriodEnd
-		_, patchCancelAt := patch.Metadata["cancel_at"]
+		_, patchCancelAt := patch.Metadata[MetadataCancelAt]
 		if patch.Metadata == nil {
 			patchCancelAt = false
 		}
@@ -947,15 +949,15 @@ func (s *Service) PatchSubscription(ctx context.Context, subscriptionID string, 
 				sub.CanceledAt = &canceledAt
 			}
 			if !patchCancelAt {
-				sub.Metadata["cancel_at"] = sub.CurrentPeriodEnd.Format(time.RFC3339Nano)
+				sub.Metadata[MetadataCancelAt] = sub.CurrentPeriodEnd.Format(time.RFC3339Nano)
 			}
 		} else {
 			sub.CanceledAt = nil
 			if !patchCancelAt {
-				delete(sub.Metadata, "cancel_at")
+				delete(sub.Metadata, MetadataCancelAt)
 			}
-			delete(sub.Metadata, "cancellation_details_comment")
-			delete(sub.Metadata, "cancellation_details_feedback")
+			delete(sub.Metadata, MetadataCancellationComment)
+			delete(sub.Metadata, MetadataCancellationFeedback)
 			if sub.Status == "canceled" {
 				sub.Status = "active"
 			}
@@ -963,7 +965,7 @@ func (s *Service) PatchSubscription(ctx context.Context, subscriptionID string, 
 	}
 	now := s.now()
 	sub.Metadata = copyMap(sub.Metadata)
-	sub.Metadata["stripe_compat_updated_at"] = now.Format(time.RFC3339Nano)
+	sub.Metadata[MetadataStripeCompatUpdatedAt] = now.Format(time.RFC3339Nano)
 	action := firstNonEmpty(patch.TimelineAction, "customer.subscription.updated")
 	message := firstNonEmpty(patch.TimelineMessage, "Stripe-compatible subscription updated")
 	source := firstNonEmpty(patch.TimelineSource, "stripe_compat")
@@ -2571,8 +2573,8 @@ func (s *Service) ChangePortalPlan(ctx context.Context, subscriptionID string, c
 	previousPrice, previousQuantity := firstItem(sub.Items)
 	sub.Items = []LineItem{{PriceID: priceID, Quantity: quantity}}
 	sub.Metadata = copyMap(sub.Metadata)
-	sub.Metadata["portal_last_action"] = "plan_change"
-	sub.Metadata["portal_updated_at"] = s.now().Format(time.RFC3339Nano)
+	sub.Metadata[MetadataPortalLastAction] = "plan_change"
+	sub.Metadata[MetadataPortalUpdatedAt] = s.now().Format(time.RFC3339Nano)
 	if planID := strings.TrimSpace(change.PlanID); planID != "" {
 		sub.Metadata["plan"] = planID
 	}
@@ -2614,8 +2616,8 @@ func (s *Service) ChangePortalSeats(ctx context.Context, subscriptionID string, 
 		sub.Items[idx].Quantity = change.Quantity
 	}
 	sub.Metadata = copyMap(sub.Metadata)
-	sub.Metadata["portal_last_action"] = "seat_change"
-	sub.Metadata["portal_updated_at"] = s.now().Format(time.RFC3339Nano)
+	sub.Metadata[MetadataPortalLastAction] = "seat_change"
+	sub.Metadata[MetadataPortalUpdatedAt] = s.now().Format(time.RFC3339Nano)
 
 	now := s.now()
 	return s.persistSubscription(ctx, sub, []TimelineEntry{portalTimeline(
@@ -2646,15 +2648,15 @@ func (s *Service) CancelPortalSubscription(ctx context.Context, subscriptionID s
 	}
 	now := s.now()
 	sub.Metadata = copyMap(sub.Metadata)
-	if sub.Metadata["status_before_cancel"] == "" && sub.Status != "canceled" {
-		sub.Metadata["status_before_cancel"] = sub.Status
+	if sub.Metadata[MetadataStatusBeforeCancel] == "" && sub.Status != "canceled" {
+		sub.Metadata[MetadataStatusBeforeCancel] = sub.Status
 	}
 	for key, value := range cancel.Metadata {
 		sub.Metadata[key] = value
 	}
-	sub.Metadata["portal_last_action"] = "cancel"
-	sub.Metadata["portal_cancel_mode"] = mode
-	sub.Metadata["portal_updated_at"] = now.Format(time.RFC3339Nano)
+	sub.Metadata[MetadataPortalLastAction] = "cancel"
+	sub.Metadata[MetadataPortalCancelMode] = mode
+	sub.Metadata[MetadataPortalUpdatedAt] = now.Format(time.RFC3339Nano)
 	data := map[string]string{"portal_action": "cancel", "mode": mode}
 	action := "customer.subscription.updated"
 	message := "Portal cancellation scheduled"
@@ -2663,11 +2665,11 @@ func (s *Service) CancelPortalSubscription(ctx context.Context, subscriptionID s
 		if sub.CanceledAt == nil {
 			sub.CanceledAt = &now
 		}
-		sub.Metadata["cancel_at"] = sub.CurrentPeriodEnd.Format(time.RFC3339Nano)
+		sub.Metadata[MetadataCancelAt] = sub.CurrentPeriodEnd.Format(time.RFC3339Nano)
 	} else {
 		sub.Status = "canceled"
 		sub.CancelAtPeriodEnd = false
-		delete(sub.Metadata, "cancel_at")
+		delete(sub.Metadata, MetadataCancelAt)
 		if sub.CanceledAt == nil {
 			sub.CanceledAt = &now
 		}
@@ -2691,7 +2693,7 @@ func (s *Service) ResumePortalSubscription(ctx context.Context, subscriptionID s
 		return Subscription{}, err
 	}
 	now := s.now()
-	statusBeforeCancel := sub.Metadata["status_before_cancel"]
+	statusBeforeCancel := sub.Metadata[MetadataStatusBeforeCancel]
 	if statusBeforeCancel == "trialing" {
 		sub.Status = "trialing"
 	} else {
@@ -2700,11 +2702,11 @@ func (s *Service) ResumePortalSubscription(ctx context.Context, subscriptionID s
 	sub.CancelAtPeriodEnd = false
 	sub.CanceledAt = nil
 	sub.Metadata = copyMap(sub.Metadata)
-	delete(sub.Metadata, "cancel_at")
-	delete(sub.Metadata, "cancellation_details_comment")
-	delete(sub.Metadata, "cancellation_details_feedback")
-	sub.Metadata["portal_last_action"] = "resume"
-	sub.Metadata["portal_updated_at"] = now.Format(time.RFC3339Nano)
+	delete(sub.Metadata, MetadataCancelAt)
+	delete(sub.Metadata, MetadataCancellationComment)
+	delete(sub.Metadata, MetadataCancellationFeedback)
+	sub.Metadata[MetadataPortalLastAction] = "resume"
+	sub.Metadata[MetadataPortalUpdatedAt] = now.Format(time.RFC3339Nano)
 
 	return s.persistSubscription(ctx, sub, []TimelineEntry{portalTimeline(
 		"portal_resume_"+sub.ID+"_"+now.Format(time.RFC3339Nano),
@@ -2787,7 +2789,7 @@ func (s *Service) cancelSubscriptionAtClock(ctx context.Context, sub Subscriptio
 	sub.CanceledAt = &canceledAt
 	sub.Metadata = copyMap(sub.Metadata)
 	sub.Metadata["emulator_clock_canceled_at"] = at.Format(time.RFC3339Nano)
-	delete(sub.Metadata, "cancel_at")
+	delete(sub.Metadata, MetadataCancelAt)
 	return s.persistSubscription(ctx, sub, []TimelineEntry{billingTimelineEntry(
 		"clock_cancel_"+sub.ID+"_"+at.Format(time.RFC3339Nano),
 		"customer.subscription.deleted",
@@ -3075,27 +3077,27 @@ func (s *Service) UpdateSubscriptionItemsWithProration(ctx context.Context, req 
 				canceledAt := at
 				updated.CanceledAt = &canceledAt
 			}
-			updated.Metadata["cancel_at"] = updated.CurrentPeriodEnd.Format(time.RFC3339Nano)
+			updated.Metadata[MetadataCancelAt] = updated.CurrentPeriodEnd.Format(time.RFC3339Nano)
 		} else {
 			updated.CanceledAt = nil
-			delete(updated.Metadata, "cancel_at")
-			delete(updated.Metadata, "cancellation_details_comment")
-			delete(updated.Metadata, "cancellation_details_feedback")
+			delete(updated.Metadata, MetadataCancelAt)
+			delete(updated.Metadata, MetadataCancellationComment)
+			delete(updated.Metadata, MetadataCancellationFeedback)
 			if updated.Status == "canceled" {
 				updated.Status = "active"
 			}
 		}
 	}
-	updated.Metadata["stripe_compat_updated_at"] = at.Format(time.RFC3339Nano)
+	updated.Metadata[MetadataStripeCompatUpdatedAt] = at.Format(time.RFC3339Nano)
 
 	if req.EndTrial && strings.EqualFold(sub.Status, "trialing") {
 		// Trial invoices were $0, so unused trial time is not a paid credit.
 		oldTotal = 0
 		oldDiscounted = 0
 		updated.Status = "active"
-		updated.Metadata["trial_end"] = at.Format(time.RFC3339Nano)
-		if strings.TrimSpace(updated.Metadata["trial_start"]) == "" && !sub.CurrentPeriodStart.IsZero() {
-			updated.Metadata["trial_start"] = sub.CurrentPeriodStart.Format(time.RFC3339Nano)
+		updated.Metadata[MetadataTrialEnd] = at.Format(time.RFC3339Nano)
+		if strings.TrimSpace(updated.Metadata[MetadataTrialStart]) == "" && !sub.CurrentPeriodStart.IsZero() {
+			updated.Metadata[MetadataTrialStart] = sub.CurrentPeriodStart.Format(time.RFC3339Nano)
 		}
 		behavior = "always_invoice"
 		anchor = "now"

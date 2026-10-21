@@ -41,6 +41,26 @@ const (
 	MetadataDaysUntilDue                = "emulator_days_until_due"
 	MetadataPaymentMethodTypes          = "emulator_payment_method_types"
 	MetadataPaymentSettingsPrefix       = "emulator_payment_settings"
+	MetadataCheckoutSession             = "emulator_checkout_session"
+	MetadataTrialStart                  = "emulator_trial_start"
+	MetadataTrialEnd                    = "emulator_trial_end"
+	MetadataTrialPeriodDays             = "emulator_trial_period_days"
+	MetadataCancelAt                    = "emulator_cancel_at"
+	MetadataEndedAt                     = "emulator_ended_at"
+	MetadataProrationBehavior           = "emulator_proration_behavior"
+	MetadataProrationDate               = "emulator_proration_date"
+	MetadataPaymentBehavior             = "emulator_payment_behavior"
+	MetadataBillingCycleAnchor          = "emulator_billing_cycle_anchor"
+	MetadataPauseCollectionBehavior     = "emulator_pause_collection_behavior"
+	MetadataPauseCollectionResumesAt    = "emulator_pause_collection_resumes_at"
+	MetadataCancellationComment         = "emulator_cancellation_details_comment"
+	MetadataCancellationFeedback        = "emulator_cancellation_details_feedback"
+	MetadataPortalLastAction            = "emulator_portal_last_action"
+	MetadataPortalUpdatedAt             = "emulator_portal_updated_at"
+	MetadataPortalCancelMode            = "emulator_portal_cancel_mode"
+	MetadataStatusBeforeCancel          = "emulator_status_before_cancel"
+	MetadataStripeCompatUpdatedAt       = "emulator_stripe_compat_updated_at"
+	MetadataBillingMode                 = "emulator_billing_mode"
 	InternalMetadataPrefix              = "emulator_"
 	MetadataPaymentMethodsFixture       = "emulator_payment_methods_fixture"
 	MetadataPaymentMethodIDs            = "emulator_payment_method_ids"
@@ -100,9 +120,18 @@ type Price struct {
 }
 
 type LineItem struct {
-	ID       string `json:"id,omitempty"` // stable subscription item ID (si_…); empty for legacy rows
-	PriceID  string `json:"price"`
-	Quantity int64  `json:"quantity"`
+	ID                 string              `json:"id,omitempty"` // stable subscription item ID (si_…); empty for legacy rows
+	PriceID            string              `json:"price"`
+	Quantity           int64               `json:"quantity"`
+	AdjustableQuantity *AdjustableQuantity `json:"adjustable_quantity,omitempty"`
+}
+
+// AdjustableQuantity is a checkout line item's adjustable_quantity: whether
+// the customer may change the quantity, and its bounds.
+type AdjustableQuantity struct {
+	Enabled bool   `json:"enabled"`
+	Minimum *int64 `json:"minimum,omitempty"`
+	Maximum *int64 `json:"maximum,omitempty"`
 }
 
 type Discount struct {
@@ -147,6 +176,8 @@ type CheckoutSession struct {
 	ClientReferenceID string `json:"client_reference_id,omitempty"`
 	// Session-level metadata (metadata[key]=value on create). Independent of PaymentIntentMetadata.
 	Metadata map[string]string `json:"metadata,omitempty"`
+	// SubscriptionMetadata is subscription_data[metadata]: the created subscription's metadata.
+	SubscriptionMetadata map[string]string `json:"-"`
 	// Payment-mode payment_intent_data snapshot fields (persisted as JSON in payment_intent_data).
 	PaymentIntentMetadata    map[string]string `json:"-"`
 	SetupFutureUsage         string            `json:"-"`

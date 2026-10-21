@@ -261,7 +261,7 @@ func TestSubscriptionUpdateMidPeriodMatchesPreview(t *testing.T) {
 
 // TestSubscriptionUpdateCreateProrationsDefersToRenewal: pending metadata then renewal absorbs it.
 func TestSubscriptionUpdateCreateProrationsDefersToRenewal(t *testing.T) {
-	handler := newTestHandler(t)
+	handler, store := newTestHandlerWithStore(t)
 	customer, lite, pro, taxRateID := setupProrationPlans(t, handler)
 
 	periodStart := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -308,10 +308,10 @@ func TestSubscriptionUpdateCreateProrationsDefersToRenewal(t *testing.T) {
 	if len(afterUpdate) != len(beforeInvoices) {
 		t.Fatalf("create_prorations created invoice: before=%d after=%d", len(beforeInvoices), len(afterUpdate))
 	}
-	if updated.Metadata[billing.MetadataPendingProrationAmount] != strconv.FormatInt(wantPending, 10) {
-		t.Fatalf("pending amount = %q, want %d", updated.Metadata[billing.MetadataPendingProrationAmount], wantPending)
+	if storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount] != strconv.FormatInt(wantPending, 10) {
+		t.Fatalf("pending amount = %q, want %d", storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAmount], wantPending)
 	}
-	if updated.Metadata[billing.MetadataPendingProrationAt] == "" {
+	if storedSubscriptionMetadata(t, store, updated.ID)[billing.MetadataPendingProrationAt] == "" {
 		t.Fatal("pending at metadata missing")
 	}
 
