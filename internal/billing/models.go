@@ -286,6 +286,14 @@ type PaymentIntent struct {
 	CreatedAt       time.Time         `json:"created_at"`
 }
 
+// PaymentMethod is a payment method minted from a Stripe test token; the
+// token decides its card details and the outcome of payments made with it.
+type PaymentMethod struct {
+	ID        string
+	Token     string
+	CreatedAt time.Time
+}
+
 type SetupIntent struct {
 	ID              string    `json:"id"`
 	Object          string    `json:"object"`

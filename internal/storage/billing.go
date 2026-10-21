@@ -1382,6 +1382,25 @@ func (s *SQLiteStore) CreateSetupIntent(ctx context.Context, intent billing.Setu
 	return s.GetSetupIntent(ctx, intent.ID)
 }
 
+func (s *SQLiteStore) CreatePaymentMethod(ctx context.Context, method billing.PaymentMethod) (billing.PaymentMethod, error) {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO payment_methods (id, token, created_at) VALUES (?, ?, ?)`,
+		method.ID, method.Token, encodeTime(method.CreatedAt)); err != nil {
+		return billing.PaymentMethod{}, err
+	}
+	return s.GetPaymentMethod(ctx, method.ID)
+}
+
+func (s *SQLiteStore) GetPaymentMethod(ctx context.Context, id string) (billing.PaymentMethod, error) {
+	var method billing.PaymentMethod
+	var createdAt string
+	err := s.db.QueryRowContext(ctx, `SELECT id, token, created_at FROM payment_methods WHERE id = ?`, id).Scan(&method.ID, &method.Token, &createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return billing.PaymentMethod{}, &billing.NotFoundError{Message: fmt.Sprintf("No such PaymentMethod: '%s'", id), Param: "payment_method"}
+	}
+	method.CreatedAt = decodeTime(createdAt)
+	return method, err
+}
+
 func (s *SQLiteStore) GetSetupIntent(ctx context.Context, id string) (billing.SetupIntent, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, customer_id, status, usage, failure_code, failure_decline_code, failure_message, payment_method_id, created_at FROM setup_intents WHERE id = ?`, id)
 	intent, err := scanSetupIntent(row)

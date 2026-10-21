@@ -139,6 +139,8 @@ type Repository interface {
 	UpdatePaymentIntent(context.Context, PaymentIntent, []TimelineEntry) (PaymentIntent, error)
 	ListPaymentIntents(context.Context) ([]PaymentIntent, error)
 	ListPaymentIntentsFiltered(context.Context, PaymentIntentFilter) ([]PaymentIntent, error)
+	CreatePaymentMethod(context.Context, PaymentMethod) (PaymentMethod, error)
+	GetPaymentMethod(context.Context, string) (PaymentMethod, error)
 	CreateSetupIntent(context.Context, SetupIntent) (SetupIntent, error)
 	GetSetupIntent(context.Context, string) (SetupIntent, error)
 	UpdateSetupIntent(context.Context, SetupIntent, []TimelineEntry) (SetupIntent, error)
@@ -574,7 +576,7 @@ func (s *Service) completeCheckout(ctx context.Context, sessionID string, outcom
 		return session, nil
 	}
 
-	outcomeSpec, ok := checkoutOutcomeFor(outcome)
+	outcomeSpec, ok := checkoutOutcomeFor(s.paymentMethodToken(ctx, outcome))
 	if !ok {
 		return CheckoutSession{}, fmt.Errorf("%w: %s", ErrUnsupportedOutcome, outcome)
 	}
@@ -1656,7 +1658,7 @@ func (s *Service) PayInvoice(ctx context.Context, invoiceID string, opts Invoice
 		return InvoicePaymentResult{}, fmt.Errorf("%w: status must be open", ErrInvalidInput)
 	}
 
-	outcome := firstNonEmpty(opts.Outcome, opts.PaymentMethodID, "payment_succeeded")
+	outcome := firstNonEmpty(opts.Outcome, s.paymentMethodToken(ctx, opts.PaymentMethodID), "payment_succeeded")
 	if opts.PaidOutOfBand {
 		outcome = "payment_succeeded"
 	}
@@ -1739,7 +1741,7 @@ func (s *Service) payManualInvoice(ctx context.Context, invoice Invoice, opts In
 			outcome = CustomerDefaultPaymentIntentOutcome(customer.Metadata)
 		}
 	}
-	outcome = firstNonEmpty(outcome, opts.PaymentMethodID, "payment_succeeded")
+	outcome = firstNonEmpty(outcome, s.paymentMethodToken(ctx, opts.PaymentMethodID), "payment_succeeded")
 	spec, ok := intentOutcomeSpec(outcome)
 	if !ok {
 		return InvoicePaymentResult{}, fmt.Errorf("%w: %s", ErrUnsupportedOutcome, outcome)
@@ -2263,7 +2265,7 @@ func (s *Service) ConfirmPaymentIntent(ctx context.Context, id string, paymentMe
 	if paymentMethodID != "" {
 		intent.PaymentMethodID = paymentMethodID
 	}
-	spec, ok := intentOutcomeSpec(firstNonEmpty(effectiveOutcome, intent.PaymentMethodID))
+	spec, ok := intentOutcomeSpec(firstNonEmpty(effectiveOutcome, s.paymentMethodToken(ctx, intent.PaymentMethodID)))
 	if !ok {
 		return PaymentIntent{}, fmt.Errorf("%w: %s", ErrUnsupportedOutcome, effectiveOutcome)
 	}
@@ -2307,6 +2309,17 @@ func (s *Service) SetPaymentIntentOutcome(ctx context.Context, id string, outcom
 	return s.repo.UpdatePaymentIntent(ctx, intent, []TimelineEntry{
 		timelineEntry("pi_"+intent.ID+"_outcome_"+now.Format(time.RFC3339Nano), "payment_intent.outcome_configured", "Payment intent outcome configured", ObjectPaymentIntent, intent.ID, intent.CustomerID, "", "", intent.ID, map[string]string{"outcome": outcome}, now),
 	})
+}
+
+// AssignPaymentIntentPaymentMethod points an intent at the payment method its
+// test token was minted into.
+func (s *Service) AssignPaymentIntentPaymentMethod(ctx context.Context, intentID string, paymentMethodID string) (PaymentIntent, error) {
+	intent, err := s.repo.GetPaymentIntent(ctx, intentID)
+	if err != nil {
+		return PaymentIntent{}, err
+	}
+	intent.PaymentMethodID = paymentMethodID
+	return s.repo.UpdatePaymentIntent(ctx, intent, nil)
 }
 
 func (s *Service) CapturePaymentIntent(ctx context.Context, id string, amountToCapture int64) (PaymentIntent, error) {
@@ -2378,6 +2391,25 @@ func (s *Service) ListPaymentIntents(ctx context.Context) ([]PaymentIntent, erro
 	return s.repo.ListPaymentIntents(ctx)
 }
 
+// CreatePaymentMethod mints a payment method backed by a Stripe test token.
+func (s *Service) CreatePaymentMethod(ctx context.Context, token string) (PaymentMethod, error) {
+	return s.repo.CreatePaymentMethod(ctx, PaymentMethod{ID: id("pm"), Token: token, CreatedAt: s.now()})
+}
+
+func (s *Service) GetPaymentMethod(ctx context.Context, id string) (PaymentMethod, error) {
+	return s.repo.GetPaymentMethod(ctx, id)
+}
+
+// paymentMethodToken resolves a minted payment method to the test token that
+// simulates its outcome; tokens, outcomes and unknown ids pass through.
+func (s *Service) paymentMethodToken(ctx context.Context, value string) string {
+	method, err := s.repo.GetPaymentMethod(ctx, value)
+	if err != nil {
+		return value
+	}
+	return method.Token
+}
+
 func (s *Service) CreateSetupIntent(ctx context.Context, in SetupIntent) (SetupIntent, error) {
 	now := s.now()
 	if strings.TrimSpace(in.ID) == "" {
@@ -2416,7 +2448,7 @@ func (s *Service) ConfirmSetupIntent(ctx context.Context, id string, paymentMeth
 	if paymentMethodID != "" {
 		intent.PaymentMethodID = paymentMethodID
 	}
-	spec, ok := intentOutcomeSpec(firstNonEmpty(outcome, intent.PaymentMethodID))
+	spec, ok := intentOutcomeSpec(firstNonEmpty(outcome, s.paymentMethodToken(ctx, intent.PaymentMethodID)))
 	if !ok {
 		return SetupIntent{}, fmt.Errorf("%w: %s", ErrUnsupportedOutcome, outcome)
 	}

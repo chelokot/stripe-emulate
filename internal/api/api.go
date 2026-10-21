@@ -2112,8 +2112,10 @@ func (h *Handler) completeCheckout(w http.ResponseWriter, r *http.Request, id st
 		if pi, err := h.billing.GetPaymentIntent(r.Context(), session.PaymentIntentID); err == nil {
 			// setup_future_usage: attach the outcome payment method to the customer.
 			if previous.SetupFutureUsage != "" && session.CustomerID != "" && pi.PaymentMethodID != "" {
-				if _, attachErr := h.attachPaymentMethod(r.Context(), session.CustomerID, pi.PaymentMethodID); attachErr == nil {
-					// keep going; attach is best-effort for local simulation
+				if _, method, err := h.attachPaymentMethod(r.Context(), session.CustomerID, pi.PaymentMethodID); err == nil && method.ID != pi.PaymentMethodID {
+					if assigned, err := h.billing.AssignPaymentIntentPaymentMethod(r.Context(), pi.ID, method.ID); err == nil {
+						pi = assigned
+					}
 				}
 			}
 			result["payment_intent"] = pi
@@ -4654,17 +4656,17 @@ func (h *Handler) handlePaymentMethods(w http.ResponseWriter, r *http.Request) {
 		paymentMethodID := p.stringDefault("id", "pm_"+sanitizeID(strconv.FormatInt(time.Now().UTC().UnixNano(), 36)))
 		customerID := p.string("customer")
 		if customerID != "" {
-			customer, err := h.attachPaymentMethod(r.Context(), customerID, paymentMethodID)
+			customer, method, err := h.attachPaymentMethod(r.Context(), customerID, paymentMethodID)
 			if err != nil {
 				writeResult(w, nil, err)
 				return
 			}
-			result := stripePaymentMethod(customer.ID, paymentMethodID)
-			h.emitGenericWebhook(r, "payment_method.attached", paymentMethodID, result, webhooks.SourceAPI)
+			result := stripePaymentMethod(customer.ID, method)
+			h.emitGenericWebhook(r, "payment_method.attached", method.ID, result, webhooks.SourceAPI)
 			writeResult(w, result, nil)
 			return
 		}
-		writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
+		writeResult(w, stripePaymentMethod("", h.paymentMethod(r.Context(), paymentMethodID)), nil)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
@@ -4696,11 +4698,11 @@ func (h *Handler) handlePaymentMethod(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if ok {
-			writeResult(w, stripePaymentMethod(customer.ID, paymentMethodID), nil)
+			writeResult(w, stripePaymentMethod(customer.ID, h.paymentMethod(r.Context(), paymentMethodID)), nil)
 			return
 		}
 		if strings.HasPrefix(paymentMethodID, "pm_") {
-			writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
+			writeResult(w, stripePaymentMethod("", h.paymentMethod(r.Context(), paymentMethodID)), nil)
 			return
 		}
 		writeResult(w, nil, billing.ErrNotFound)
@@ -4720,10 +4722,10 @@ func (h *Handler) handlePaymentMethod(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if ok {
-			writeResult(w, stripePaymentMethod(customer.ID, paymentMethodID), nil)
+			writeResult(w, stripePaymentMethod(customer.ID, h.paymentMethod(r.Context(), paymentMethodID)), nil)
 			return
 		}
-		writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
+		writeResult(w, stripePaymentMethod("", h.paymentMethod(r.Context(), paymentMethodID)), nil)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
@@ -4743,13 +4745,13 @@ func (h *Handler) handlePaymentMethodAttach(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	customer, err := h.attachPaymentMethod(r.Context(), p.string("customer"), paymentMethodID)
+	customer, method, err := h.attachPaymentMethod(r.Context(), p.string("customer"), paymentMethodID)
 	if err != nil {
 		writeResult(w, nil, err)
 		return
 	}
-	result := stripePaymentMethod(customer.ID, paymentMethodID)
-	h.emitGenericWebhook(r, "payment_method.attached", paymentMethodID, result, webhooks.SourceAPI)
+	result := stripePaymentMethod(customer.ID, method)
+	h.emitGenericWebhook(r, "payment_method.attached", method.ID, result, webhooks.SourceAPI)
 	writeResult(w, result, nil)
 }
 
@@ -4776,7 +4778,7 @@ func (h *Handler) handlePaymentMethodDetach(w http.ResponseWriter, r *http.Reque
 		writeResult(w, nil, err)
 		return
 	}
-	writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
+	writeResult(w, stripePaymentMethod("", h.paymentMethod(r.Context(), paymentMethodID)), nil)
 }
 
 func (h *Handler) handleCustomerPaymentMethods(w http.ResponseWriter, r *http.Request, customerID string) {
@@ -4799,7 +4801,7 @@ func (h *Handler) handleCustomerPaymentMethod(w http.ResponseWriter, r *http.Req
 	}
 	for _, id := range customerPaymentMethodIDs(customer) {
 		if id == paymentMethodID {
-			writeResult(w, stripePaymentMethod(customer.ID, paymentMethodID), nil)
+			writeResult(w, stripePaymentMethod(customer.ID, h.paymentMethod(r.Context(), paymentMethodID)), nil)
 			return
 		}
 	}
@@ -4825,19 +4827,39 @@ func (h *Handler) writeCustomerPaymentMethods(w http.ResponseWriter, r *http.Req
 		writeResult(w, stripeListFromRequest(r, []map[string]any{}), nil)
 		return
 	}
-	writeResult(w, stripeListFromRequest(r, stripePaymentMethods(customer)), nil)
+	writeResult(w, stripeListFromRequest(r, h.stripePaymentMethods(r.Context(), customer)), nil)
 }
 
-func (h *Handler) attachPaymentMethod(ctx context.Context, customerID string, paymentMethodID string) (billing.Customer, error) {
+// attachPaymentMethod attaches a payment method to a customer. A Stripe test
+// token (pm_card_*) is never attached itself: like Stripe, attaching it mints
+// a new payment method.
+func (h *Handler) attachPaymentMethod(ctx context.Context, customerID string, paymentMethodID string) (billing.Customer, billing.PaymentMethod, error) {
 	customer, err := h.billing.GetCustomer(ctx, customerID)
 	if err != nil {
-		return billing.Customer{}, err
+		return billing.Customer{}, billing.PaymentMethod{}, err
+	}
+	method := h.paymentMethod(ctx, paymentMethodID)
+	if strings.HasPrefix(paymentMethodID, "pm_card_") {
+		if method, err = h.billing.CreatePaymentMethod(ctx, paymentMethodID); err != nil {
+			return billing.Customer{}, billing.PaymentMethod{}, err
+		}
 	}
 	metadata := copyStringMap(customer.Metadata)
-	ids := append(splitPaymentMethodIDs(metadata[billing.MetadataPaymentMethodIDs]), paymentMethodID)
+	ids := append(splitPaymentMethodIDs(metadata[billing.MetadataPaymentMethodIDs]), method.ID)
 	metadata[billing.MetadataPaymentMethodIDs] = strings.Join(uniquePaymentMethodIDs(ids), ",")
 	metadata[billing.MetadataPaymentMethodsFixture] = billing.PaymentMethodsFixtureExplicit
-	return h.billing.UpdateCustomer(ctx, customer.ID, billing.CustomerUpdate{Metadata: metadata})
+	customer, err = h.billing.UpdateCustomer(ctx, customer.ID, billing.CustomerUpdate{Metadata: metadata})
+	return customer, method, err
+}
+
+// paymentMethod returns the stored payment method, or treats the id as its
+// own test token for tokens and fixture ids that were never minted.
+func (h *Handler) paymentMethod(ctx context.Context, id string) billing.PaymentMethod {
+	method, err := h.billing.GetPaymentMethod(ctx, id)
+	if err != nil {
+		return billing.PaymentMethod{ID: id, Token: id, CreatedAt: time.Now().UTC()}
+	}
+	return method
 }
 
 func (h *Handler) findPaymentMethodCustomer(ctx context.Context, paymentMethodID string) (billing.Customer, bool, error) {
@@ -5928,7 +5950,7 @@ func (h *Handler) handlePortalCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.Status == "succeeded" && result.PaymentMethodID != "" {
-		h.emitGenericWebhook(r, "payment_method.attached", result.PaymentMethodID, stripePaymentMethod(customerID, result.PaymentMethodID), webhooks.SourcePortal)
+		h.emitGenericWebhook(r, "payment_method.attached", result.PaymentMethodID, stripePaymentMethod(customerID, h.paymentMethod(r.Context(), result.PaymentMethodID)), webhooks.SourcePortal)
 		if customer, err := h.billing.GetCustomer(r.Context(), customerID); err == nil {
 			h.emitGenericWebhook(r, "customer.updated", customer.ID, stripeCustomer(customer), webhooks.SourcePortal)
 		}
@@ -7212,14 +7234,11 @@ func stripeCustomer(customer billing.Customer) map[string]any {
 	}
 }
 
-func stripePaymentMethod(customerID string, paymentMethodID string) map[string]any {
-	if strings.TrimSpace(paymentMethodID) == "" {
-		paymentMethodID = "pm_" + sanitizeID(customerID)
-	}
-	brand := paymentMethodBrand(paymentMethodID)
+func stripePaymentMethod(customerID string, method billing.PaymentMethod) map[string]any {
+	brand := paymentMethodBrand(method.Token)
 	now := time.Now().UTC()
 	return map[string]any{
-		"id":              paymentMethodID,
+		"id":              method.ID,
 		"object":          "payment_method",
 		"allow_redisplay": "unspecified",
 		"billing_details": map[string]any{
@@ -7246,10 +7265,10 @@ func stripePaymentMethod(customerID string, paymentMethodID string) map[string]a
 			"display_brand":    brand,
 			"exp_month":        int(now.Month()),
 			"exp_year":         now.Year() + 1,
-			"fingerprint":      paymentMethodFingerprint(paymentMethodID),
-			"funding":          paymentMethodFunding(paymentMethodID),
+			"fingerprint":      paymentMethodFingerprint(method.Token),
+			"funding":          paymentMethodFunding(method.Token),
 			"generated_from":   nil,
-			"last4":            paymentMethodLast4(paymentMethodID),
+			"last4":            paymentMethodLast4(method.Token),
 			"networks":         map[string]any{"available": []string{brand}, "preferred": nil},
 			"regulated_status": "unregulated",
 			"three_d_secure_usage": map[string]any{
@@ -7257,18 +7276,18 @@ func stripePaymentMethod(customerID string, paymentMethodID string) map[string]a
 			},
 			"wallet": nil,
 		},
-		"created":                      now.Unix(),
+		"created":                      method.CreatedAt.Unix(),
 		"livemode":                     false,
 		"metadata":                     map[string]string{},
 		"shared_payment_granted_token": nil,
 	}
 }
 
-func stripePaymentMethods(customer billing.Customer) []map[string]any {
+func (h *Handler) stripePaymentMethods(ctx context.Context, customer billing.Customer) []map[string]any {
 	ids := customerPaymentMethodIDs(customer)
 	data := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		data = append(data, stripePaymentMethod(customer.ID, id))
+		data = append(data, stripePaymentMethod(customer.ID, h.paymentMethod(ctx, id)))
 	}
 	return data
 }

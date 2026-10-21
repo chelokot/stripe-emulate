@@ -5952,7 +5952,7 @@ func TestPaymentMethodAttachDetach(t *testing.T) {
 		ID       string `json:"id"`
 		Customer string `json:"customer"`
 	}](t, handler, "/v1/payment_methods/pm_card_visa/attach", url.Values{"customer": {customer.ID}})
-	if attached.ID != "pm_card_visa" || attached.Customer != customer.ID {
+	if !strings.HasPrefix(attached.ID, "pm_") || attached.ID == "pm_card_visa" || attached.Customer != customer.ID {
 		t.Fatalf("attached payment method = %#v", attached)
 	}
 	listed := getJSON[struct {
@@ -5961,29 +5961,29 @@ func TestPaymentMethodAttachDetach(t *testing.T) {
 			Customer string `json:"customer"`
 		} `json:"data"`
 	}](t, handler, "/v1/customers/"+customer.ID+"/payment_methods?type=card")
-	if len(listed.Data) != 1 || listed.Data[0].ID != "pm_card_visa" {
+	if len(listed.Data) != 1 || listed.Data[0].ID != attached.ID {
 		t.Fatalf("listed payment methods = %#v, want attached card", listed.Data)
 	}
 	retrieved := getJSON[struct {
 		ID       string `json:"id"`
 		Customer string `json:"customer"`
-	}](t, handler, "/v1/payment_methods/pm_card_visa")
+	}](t, handler, "/v1/payment_methods/"+attached.ID)
 	if retrieved.Customer != customer.ID {
 		t.Fatalf("retrieved payment method = %#v, want attached customer", retrieved)
 	}
 	nestedRetrieved := getJSON[struct {
 		ID       string `json:"id"`
 		Customer string `json:"customer"`
-	}](t, handler, "/v1/customers/"+customer.ID+"/payment_methods/pm_card_visa")
-	if nestedRetrieved.ID != "pm_card_visa" || nestedRetrieved.Customer != customer.ID {
+	}](t, handler, "/v1/customers/"+customer.ID+"/payment_methods/"+attached.ID)
+	if nestedRetrieved.ID != attached.ID || nestedRetrieved.Customer != customer.ID {
 		t.Fatalf("nested payment method = %#v, want attached customer card", nestedRetrieved)
 	}
 
 	detached := postForm[struct {
 		ID       string  `json:"id"`
 		Customer *string `json:"customer"`
-	}](t, handler, "/v1/payment_methods/pm_card_visa/detach", url.Values{})
-	if detached.ID != "pm_card_visa" || detached.Customer != nil {
+	}](t, handler, "/v1/payment_methods/"+attached.ID+"/detach", url.Values{})
+	if detached.ID != attached.ID || detached.Customer != nil {
 		t.Fatalf("detached payment method = %#v, want null customer", detached)
 	}
 	after := getJSON[struct {
@@ -7946,8 +7946,8 @@ func TestCustomerDefaultPaymentMethodUpdateAndAttach(t *testing.T) {
 	}](t, handler, "/v1/payment_methods/pm_card_mastercard/attach", url.Values{
 		"customer": {empty.ID},
 	})
-	if attached.ID != "pm_card_mastercard" {
-		t.Fatalf("attached = %#v", attached)
+	if !strings.HasPrefix(attached.ID, "pm_") || attached.ID == "pm_card_mastercard" {
+		t.Fatalf("attached = %#v, want a minted payment method", attached)
 	}
 	afterAttach := getJSON[struct {
 		InvoiceSettings struct {
