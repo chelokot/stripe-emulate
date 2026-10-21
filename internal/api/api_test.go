@@ -1588,8 +1588,8 @@ func TestWebhookEndpointDeliveryAndReplay(t *testing.T) {
 		if err := json.Unmarshal(event.Data.Object, &payload); err != nil {
 			t.Fatalf("decode subscription webhook payload: %v", err)
 		}
-		if _, ok := payload["current_period_start"].(float64); !ok {
-			t.Fatalf("subscription webhook current_period_start = %#v, want Stripe-style unix timestamp", payload["current_period_start"])
+		if _, ok := payload["created"].(float64); !ok {
+			t.Fatalf("subscription webhook created = %#v, want Stripe-style unix timestamp", payload["created"])
 		}
 	}
 
@@ -2173,17 +2173,15 @@ func TestConnectAccountSmokeCompatibility(t *testing.T) {
 	}
 
 	link := postForm[struct {
-		Object  string `json:"object"`
-		Account string `json:"account"`
-		Type    string `json:"type"`
-		URL     string `json:"url"`
+		Object string `json:"object"`
+		URL    string `json:"url"`
 	}](t, handler, "/v1/account_links", url.Values{
 		"account":     {account.ID},
 		"type":        {"account_onboarding"},
 		"refresh_url": {"http://app.example.test/refresh"},
 		"return_url":  {"http://app.example.test/return"},
 	})
-	if link.Object != "account_link" || link.Account != account.ID || link.Type != "account_onboarding" || !strings.HasPrefix(link.URL, "http://127.0.0.1:18080/connect/accounts/"+account.ID) {
+	if link.Object != "account_link" || !strings.HasPrefix(link.URL, "http://127.0.0.1:18080/connect/accounts/"+account.ID) {
 		t.Fatalf("account link = %#v, want local onboarding link", link)
 	}
 
@@ -2988,16 +2986,16 @@ func TestSupportedEndpointRequestValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("webhook update active must be boolean", func(t *testing.T) {
+	t.Run("webhook update disabled must be boolean", func(t *testing.T) {
 		status, body := postFormStatus(t, handler, "/v1/webhook_endpoints/we_missing", url.Values{
-			"active": {"maybe"},
+			"disabled": {"maybe"},
 		})
 		errBody := decodeErrorBody(t, body)
 		if status != http.StatusBadRequest {
 			t.Fatalf("status=%d body=%s, want 400", status, body)
 		}
-		if errBody.Error.Code != "parameter_invalid" || errBody.Error.Param != "active" {
-			t.Fatalf("error=%#v, want invalid active", errBody.Error)
+		if errBody.Error.Code != "parameter_invalid" || errBody.Error.Param != "disabled" {
+			t.Fatalf("error=%#v, want invalid disabled", errBody.Error)
 		}
 	})
 }
@@ -3416,8 +3414,8 @@ func TestBillingPortalSessionActionsEmitWebhooks(t *testing.T) {
 		"recurring[interval]": {"month"},
 	})
 	subscription := postForm[struct {
-		ID               string `json:"id"`
-		CurrentPeriodEnd int64  `json:"current_period_end"`
+		ID string `json:"id"`
+		subscriptionItemPeriods
 	}](t, handler, "/v1/subscriptions", url.Values{
 		"customer":        {customer.ID},
 		"items[0][price]": {price.ID},
@@ -3502,7 +3500,7 @@ func TestBillingPortalSessionActionsEmitWebhooks(t *testing.T) {
 		t.Fatalf("portal cancel = %#v, want period-end cancellation", canceled.Subscription)
 	}
 	_ = postForm[map[string]any](t, handler, "/v1/test_helpers/test_clocks/clock_portal/advance", url.Values{
-		"frozen_time": {strconv.FormatInt(subscription.CurrentPeriodEnd+1, 10)},
+		"frozen_time": {strconv.FormatInt(subscription.CurrentPeriodEnd()+1, 10)},
 	})
 
 	wantTypes := []string{"payment_method.attached", "customer.updated", "customer.subscription.updated", "customer.subscription.deleted"}
@@ -3974,16 +3972,16 @@ func TestExpandedStripeSurfaceSimulations(t *testing.T) {
 		t.Fatalf("coupon = %#v, want local coupon evidence", coupon)
 	}
 	promo := postForm[struct {
-		Object string `json:"object"`
-		Code   string `json:"code"`
-		Coupon struct {
-			ID string `json:"id"`
-		} `json:"coupon"`
+		Object    string `json:"object"`
+		Code      string `json:"code"`
+		Promotion struct {
+			Coupon string `json:"coupon"`
+		} `json:"promotion"`
 	}](t, handler, "/v1/promotion_codes", url.Values{
 		"coupon": {coupon.ID},
 		"code":   {"LAUNCH25"},
 	})
-	if promo.Object != "promotion_code" || promo.Code != "LAUNCH25" || promo.Coupon.ID != coupon.ID {
+	if promo.Object != "promotion_code" || promo.Code != "LAUNCH25" || promo.Promotion.Coupon != coupon.ID {
 		t.Fatalf("promotion code = %#v, want coupon-backed promotion", promo)
 	}
 
@@ -4047,8 +4045,8 @@ func TestExpandedStripeSurfaceSimulations(t *testing.T) {
 		"test_clock": {"clock_schedule"},
 	})
 	subscription := postForm[struct {
-		ID               string `json:"id"`
-		CurrentPeriodEnd int64  `json:"current_period_end"`
+		ID string `json:"id"`
+		subscriptionItemPeriods
 	}](t, handler, "/v1/subscriptions", url.Values{
 		"customer":        {clockCustomer.ID},
 		"items[0][price]": {priceBasic.ID},
@@ -4058,7 +4056,7 @@ func TestExpandedStripeSurfaceSimulations(t *testing.T) {
 		Status string `json:"status"`
 	}](t, handler, "/v1/subscription_schedules", url.Values{
 		"from_subscription":             {subscription.ID},
-		"phases[0][start_date]":         {strconv.FormatInt(subscription.CurrentPeriodEnd, 10)},
+		"phases[0][start_date]":         {strconv.FormatInt(subscription.CurrentPeriodEnd(), 10)},
 		"phases[0][items][0][price]":    {priceScale.ID},
 		"phases[0][items][0][quantity]": {"3"},
 	})
@@ -4070,7 +4068,7 @@ func TestExpandedStripeSurfaceSimulations(t *testing.T) {
 			ScheduledCount int `json:"scheduled_count"`
 		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_schedule/advance", url.Values{
-		"frozen_time": {strconv.FormatInt(subscription.CurrentPeriodEnd+1, 10)},
+		"frozen_time": {strconv.FormatInt(subscription.CurrentPeriodEnd()+1, 10)},
 	})
 	if advance.EmulatorAdvanceResult.ScheduledCount != 1 {
 		t.Fatalf("clock advance = %#v, want scheduled phase applied", advance)
@@ -4103,8 +4101,8 @@ func TestExpandedStripeSurfaceSimulations(t *testing.T) {
 	closedDispute := postForm[struct {
 		Status string `json:"status"`
 	}](t, handler, "/v1/disputes/"+dispute.ID+"/close", url.Values{})
-	if closedDispute.Status != "won" {
-		t.Fatalf("closed dispute = %#v, want won", closedDispute)
+	if closedDispute.Status != "lost" {
+		t.Fatalf("closed dispute = %#v, want lost", closedDispute)
 	}
 
 	attempts := getJSON[struct {
@@ -5593,7 +5591,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 		}
 		note := postForm[struct {
 			ID           string `json:"id"`
-			CreditAmount int64  `json:"credit_amount"`
+			CreditAmount int64  `json:"emulator_credit_amount"`
 		}](t, handler, "/v1/credit_notes", url.Values{
 			"invoice": {invoice.ID},
 			"amount":  {"2500"},
@@ -5606,7 +5604,7 @@ func TestPendingInvoiceItemsAndInvoiceReadShape(t *testing.T) {
 			t.Fatalf("post_payment_credit_notes_amount = %d, want 2500", got.PostPaymentCreditNotesAmount)
 		}
 		oob := postForm[struct {
-			CreditAmount int64 `json:"credit_amount"`
+			CreditAmount int64 `json:"emulator_credit_amount"`
 		}](t, handler, "/v1/credit_notes", url.Values{
 			"invoice":            {invoice.ID},
 			"out_of_band_amount": {"1000"},
@@ -6352,15 +6350,15 @@ func TestFixtureResolveStatusAndTestClockAdvance(t *testing.T) {
 		t.Fatalf("updated test clock = %#v", updated.TestClocks)
 	}
 	directClockSub := postForm[struct {
-		ID                 string `json:"id"`
-		TestClock          string `json:"test_clock"`
-		CurrentPeriodStart int64  `json:"current_period_start"`
+		ID        string `json:"id"`
+		TestClock string `json:"test_clock"`
+		subscriptionItemPeriods
 	}](t, handler, "/v1/subscriptions", url.Values{
 		"customer":        {"cus_e2e_trial"},
 		"items[0][price]": {"price_e2e_plan_monthly"},
 		"test_clock":      {"clock_e2e_lifecycle"},
 	})
-	if directClockSub.ID == "" || directClockSub.TestClock != "clock_e2e_lifecycle" || directClockSub.CurrentPeriodStart != 1775088000 {
+	if directClockSub.ID == "" || directClockSub.TestClock != "clock_e2e_lifecycle" || directClockSub.CurrentPeriodStart() != 1775088000 {
 		t.Fatalf("direct clock subscription = %#v, want creation at frozen clock time", directClockSub)
 	}
 	sessionsBeforeInvalidClock := getJSON[struct {
@@ -6553,19 +6551,18 @@ func TestFixtureSubscriptionStatusAndDatesOverrideOutcome(t *testing.T) {
 
 	trialList := getJSON[struct {
 		Data []struct {
-			ID                 string `json:"id"`
-			Status             string `json:"status"`
-			CurrentPeriodStart int64  `json:"current_period_start"`
-			CurrentPeriodEnd   int64  `json:"current_period_end"`
-			TrialStart         int64  `json:"trial_start"`
-			TrialEnd           int64  `json:"trial_end"`
+			ID     string `json:"id"`
+			Status string `json:"status"`
+			subscriptionItemPeriods
+			TrialStart int64 `json:"trial_start"`
+			TrialEnd   int64 `json:"trial_end"`
 		} `json:"data"`
 	}](t, handler, "/v1/subscriptions?customer=cus_fixture_trial&status=all")
 	if len(trialList.Data) != 1 {
 		t.Fatalf("trial list = %#v, want one subscription", trialList.Data)
 	}
 	trial := trialList.Data[0]
-	if trial.ID != "sub_fixture_trial" || trial.Status != "trialing" || trial.CurrentPeriodStart != 1894233600 || trial.CurrentPeriodEnd != 1894665600 || trial.TrialStart != 1894233600 || trial.TrialEnd != 1894665600 {
+	if trial.ID != "sub_fixture_trial" || trial.Status != "trialing" || trial.CurrentPeriodStart() != 1894233600 || trial.CurrentPeriodEnd() != 1894665600 || trial.TrialStart != 1894233600 || trial.TrialEnd != 1894665600 {
 		t.Fatalf("trial subscription = %#v, want fixture status and dates preserved", trial)
 	}
 
@@ -6610,11 +6607,11 @@ func TestFixtureSubscriptionStatusAndDatesOverrideOutcome(t *testing.T) {
 
 	_ = postJSON[fixtures.ApplyResult](t, handler, "/api/fixtures/apply", pack)
 	reset := getJSON[struct {
-		Status           string `json:"status"`
-		CurrentPeriodEnd int64  `json:"current_period_end"`
-		TrialEnd         int64  `json:"trial_end"`
+		Status string `json:"status"`
+		subscriptionItemPeriods
+		TrialEnd int64 `json:"trial_end"`
 	}](t, handler, "/v1/subscriptions/sub_fixture_trial")
-	if reset.Status != "trialing" || reset.CurrentPeriodEnd != 1894665600 || reset.TrialEnd != 1894665600 {
+	if reset.Status != "trialing" || reset.CurrentPeriodEnd() != 1894665600 || reset.TrialEnd != 1894665600 {
 		t.Fatalf("reset trial subscription = %#v, want fixture status and dates restored", reset)
 	}
 }
@@ -6753,7 +6750,6 @@ func TestRefundCreditNoteAPIsAndEvents(t *testing.T) {
 	refund := postForm[struct {
 		ID            string `json:"id"`
 		Charge        string `json:"charge"`
-		Invoice       string `json:"invoice"`
 		PaymentIntent string `json:"payment_intent"`
 		Status        string `json:"status"`
 	}](t, handler, "/v1/refunds", url.Values{
@@ -6761,7 +6757,7 @@ func TestRefundCreditNoteAPIsAndEvents(t *testing.T) {
 		"amount":  {"15000"},
 		"reason":  {"requested_by_customer"},
 	})
-	if refund.ID == "" || refund.Charge == "" || refund.Invoice != completion.Invoice.ID || refund.PaymentIntent != completion.PaymentIntent.ID || refund.Status != "succeeded" {
+	if refund.ID == "" || refund.Charge == "" || refund.PaymentIntent != completion.PaymentIntent.ID || refund.Status != "succeeded" {
 		t.Fatalf("refund = %#v, want linked refund evidence", refund)
 	}
 
@@ -7068,18 +7064,18 @@ func TestSubscriptionUpdateFutureTrialEndUpdatesTimestamp(t *testing.T) {
 		t.Fatalf("fixture = %#v", applied)
 	}
 	updated := postForm[struct {
-		Status           string `json:"status"`
-		TrialEnd         int64  `json:"trial_end"`
-		CurrentPeriodEnd int64  `json:"current_period_end"`
-		LatestInvoice    string `json:"latest_invoice"`
+		Status   string `json:"status"`
+		TrialEnd int64  `json:"trial_end"`
+		subscriptionItemPeriods
+		LatestInvoice string `json:"latest_invoice"`
 	}](t, handler, "/v1/subscriptions/sub_future_trial", url.Values{
 		"trial_end": {strconv.FormatInt(future.Unix(), 10)},
 	})
 	if updated.Status != "trialing" {
 		t.Fatalf("status = %q, want still trialing", updated.Status)
 	}
-	if updated.TrialEnd != future.Unix() || updated.CurrentPeriodEnd != future.Unix() {
-		t.Fatalf("trial/period end = %d/%d, want %d", updated.TrialEnd, updated.CurrentPeriodEnd, future.Unix())
+	if updated.TrialEnd != future.Unix() || updated.CurrentPeriodEnd() != future.Unix() {
+		t.Fatalf("trial/period end = %d/%d, want %d", updated.TrialEnd, updated.CurrentPeriodEnd(), future.Unix())
 	}
 }
 
@@ -7164,8 +7160,8 @@ func TestCreditNoteOutOfBandMemoRefundAmount(t *testing.T) {
 		Amount          int64  `json:"amount"`
 		Memo            string `json:"memo"`
 		OutOfBandAmount int64  `json:"out_of_band_amount"`
-		RefundAmount    int64  `json:"refund_amount"`
-		CreditAmount    int64  `json:"credit_amount"`
+		RefundAmount    int64  `json:"emulator_refund_amount"`
+		CreditAmount    int64  `json:"emulator_credit_amount"`
 		Status          string `json:"status"`
 	}](t, handler, "/v1/credit_notes", url.Values{
 		"invoice":            {completion.Invoice.ID},
@@ -7185,8 +7181,8 @@ func TestCreditNoteOutOfBandMemoRefundAmount(t *testing.T) {
 		Amount          int64  `json:"amount"`
 		Memo            string `json:"memo"`
 		OutOfBandAmount int64  `json:"out_of_band_amount"`
-		RefundAmount    int64  `json:"refund_amount"`
-		CreditAmount    int64  `json:"credit_amount"`
+		RefundAmount    int64  `json:"emulator_refund_amount"`
+		CreditAmount    int64  `json:"emulator_credit_amount"`
 	}](t, handler, "/v1/credit_notes/"+created.ID)
 	if got.Amount != 8000 || got.OutOfBandAmount != 5000 || got.RefundAmount != 3000 || got.CreditAmount != 0 || got.Memo != "settled outside the processor" {
 		t.Fatalf("retrieved credit note = %#v, want persisted allocation", got)
@@ -7479,28 +7475,63 @@ func TestWebhookReplaySimulateAppFailureThenDeliver(t *testing.T) {
 	}
 }
 
-func TestWebhookEndpointPatchPreservesActiveUnlessEnabledChanges(t *testing.T) {
+func TestWebhookEndpointUpdateKeepsStatusUnlessDisabledChanges(t *testing.T) {
 	handler := newTestHandler(t)
-	endpoint := postForm[webhooks.Endpoint](t, handler, "/v1/webhook_endpoints", url.Values{
+	type endpointResponse struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+		URL    string `json:"url"`
+	}
+	endpoint := postForm[endpointResponse](t, handler, "/v1/webhook_endpoints", url.Values{
 		"url":            {"http://example.test/a"},
 		"enabled_events": {"*"},
 	})
-
-	patched := patchForm[webhooks.Endpoint](t, handler, "/v1/webhook_endpoints/"+endpoint.ID, url.Values{
-		"enabled": {"false"},
-	})
-	if patched.Active {
-		t.Fatalf("patched endpoint active = true, want disabled")
+	if endpoint.Status != "enabled" {
+		t.Fatalf("created endpoint status = %q, want enabled", endpoint.Status)
 	}
-	renamed := patchForm[webhooks.Endpoint](t, handler, "/v1/webhook_endpoints/"+endpoint.ID, url.Values{
+
+	disabled := postForm[endpointResponse](t, handler, "/v1/webhook_endpoints/"+endpoint.ID, url.Values{
+		"disabled": {"true"},
+	})
+	if disabled.Status != "disabled" {
+		t.Fatalf("disabled endpoint status = %q, want disabled", disabled.Status)
+	}
+	renamed := postForm[endpointResponse](t, handler, "/v1/webhook_endpoints/"+endpoint.ID, url.Values{
 		"url": {"http://example.test/b"},
 	})
-	if renamed.Active || renamed.URL != "http://example.test/b" {
-		t.Fatalf("renamed endpoint = %#v, want inactive endpoint with updated url", renamed)
+	if renamed.Status != "disabled" || renamed.URL != "http://example.test/b" {
+		t.Fatalf("renamed endpoint = %#v, want disabled endpoint with updated url", renamed)
+	}
+	deleted := deleteForm[struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Deleted bool   `json:"deleted"`
+	}](t, handler, "/v1/webhook_endpoints/"+endpoint.ID, url.Values{})
+	if deleted.ID != endpoint.ID || deleted.Object != "webhook_endpoint" || !deleted.Deleted {
+		t.Fatalf("deleted endpoint = %#v, want deleted marker", deleted)
 	}
 }
 
 const legacyStripeVersion = "2024-06-20"
+
+// subscriptionItemPeriods reads billing periods from subscription items, where
+// Stripe keeps them since API version 2025-03-31.basil.
+type subscriptionItemPeriods struct {
+	Items struct {
+		Data []struct {
+			CurrentPeriodStart int64 `json:"current_period_start"`
+			CurrentPeriodEnd   int64 `json:"current_period_end"`
+		} `json:"data"`
+	} `json:"items"`
+}
+
+func (s subscriptionItemPeriods) CurrentPeriodStart() int64 {
+	return s.Items.Data[0].CurrentPeriodStart
+}
+
+func (s subscriptionItemPeriods) CurrentPeriodEnd() int64 {
+	return s.Items.Data[0].CurrentPeriodEnd
+}
 
 // withStripeVersion pins every request to a Stripe API version, so tests can
 // read the legacy response fields older clients receive.
@@ -7533,7 +7564,7 @@ func newTestHandlerWithOptions(t *testing.T, opts Options) http.Handler {
 	}
 	// After t.TempDir(): LIFO runs wait+close before TempDir removal.
 	webhookstest.RegisterStoreCleanup(t, webhookService, store)
-	return New(opts)
+	return withStripeSchemaCheck(t, New(opts), store)
 }
 
 func containsString(values []string, want string) bool {
@@ -7611,16 +7642,6 @@ func getStatus(t *testing.T, handler http.Handler, path string) (int, string) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec.Code, rec.Body.String()
-}
-
-func patchForm[T any](t *testing.T, handler http.Handler, path string, values url.Values) T {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodPatch, path, stringsReader(values.Encode()))
-	req.Host = "emulator.test"
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	return decodeResponse[T](t, rec)
 }
 
 func getJSON[T any](t *testing.T, handler http.Handler, path string) T {
@@ -7987,25 +8008,25 @@ func TestSubscriptionCurrentPeriodEndFilter(t *testing.T) {
 		"test_clock": {lateClock.ID},
 	})
 	earlySub := postForm[struct {
-		ID               string `json:"id"`
-		CurrentPeriodEnd int64  `json:"current_period_end"`
+		ID string `json:"id"`
+		subscriptionItemPeriods
 	}](t, handler, "/v1/subscriptions", url.Values{
 		"customer":        {earlyCustomer.ID},
 		"items[0][price]": {price.ID},
 		"test_clock":      {earlyClock.ID},
 	})
 	lateSub := postForm[struct {
-		ID               string `json:"id"`
-		CurrentPeriodEnd int64  `json:"current_period_end"`
+		ID string `json:"id"`
+		subscriptionItemPeriods
 	}](t, handler, "/v1/subscriptions", url.Values{
 		"customer":        {lateCustomer.ID},
 		"items[0][price]": {price.ID},
 		"test_clock":      {lateClock.ID},
 	})
-	if lateSub.CurrentPeriodEnd <= earlySub.CurrentPeriodEnd {
-		t.Fatalf("period ends early=%d late=%d, want late > early", earlySub.CurrentPeriodEnd, lateSub.CurrentPeriodEnd)
+	if lateSub.CurrentPeriodEnd() <= earlySub.CurrentPeriodEnd() {
+		t.Fatalf("period ends early=%d late=%d, want late > early", earlySub.CurrentPeriodEnd(), lateSub.CurrentPeriodEnd())
 	}
-	mid := (earlySub.CurrentPeriodEnd + lateSub.CurrentPeriodEnd) / 2
+	mid := (earlySub.CurrentPeriodEnd() + lateSub.CurrentPeriodEnd()) / 2
 	gte := getJSON[struct {
 		Data []struct {
 			ID string `json:"id"`

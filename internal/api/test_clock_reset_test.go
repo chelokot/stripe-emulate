@@ -43,7 +43,7 @@ func TestTestClockDeleteDetachesReferences(t *testing.T) {
 		Object  string `json:"object"`
 		Deleted bool   `json:"deleted"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_detached", url.Values{})
-	if !deleted.Deleted || deleted.Object != "test_clock" {
+	if !deleted.Deleted || deleted.Object != "test_helpers.test_clock" {
 		t.Fatalf("clock delete = %#v, want deleted test_clock marker", deleted)
 	}
 	missingReq := httptest.NewRequest(http.MethodGet, "/v1/test_helpers/test_clocks/clock_detached", nil)

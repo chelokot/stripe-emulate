@@ -56,7 +56,7 @@ var (
 	schedulePhaseParamRE        = regexp.MustCompile(`^phases\[\d+\]\[(start_date|end_date|iterations|items|plans)\].*$`)
 	invoicePreviewItemParamRE   = regexp.MustCompile(`^((subscription_details|subscriptionDetails)\[items\]\[\d+\]\[(id|price|price_id|quantity)\]|(subscription_items|items)\[\d+\]\[(id|price|price_id|quantity)\])$`)
 	invoicePaymentSettingsRE    = regexp.MustCompile(`^payment_settings(\[[^\]]+\])+$`)
-	portalFeatureParamRE        = regexp.MustCompile(`^features\[(customer_update|invoice_history|payment_method_update|subscription_cancel|subscription_update)\]\[(enabled|mode|proration_behavior|cancellation_reason|allowed_updates|default_allowed_updates)\](\[\d*\])?$`)
+	portalFeatureParamRE        = regexp.MustCompile(`^features\[(customer_update|invoice_history|payment_method_update|subscription_cancel|subscription_update)\]\[(enabled|mode|proration_behavior|allowed_updates|default_allowed_updates|cancellation_reason\]\[(?:enabled|options))\](\[\d*\])?$`)
 	// Session update line items are quantity-only overrides of existing items.
 	checkoutSessionLineItemQuantityRE = regexp.MustCompile(`^line_items\[(\d+)\]\[quantity\]$`)
 	// Draft-invoice line mutation params (add_lines/update_lines/remove_lines).
@@ -1635,7 +1635,7 @@ func validateBillingPortalConfigurationCreate(p params) error {
 			"business_profile[privacy_policy_url]",
 			"business_profile[terms_of_service_url]",
 			"default_return_url",
-			"login_page[logo_url]",
+			"login_page[enabled]",
 		},
 		AllowedRegex: []*regexp.Regexp{portalFeatureParamRE},
 		EnumParams: map[string][]string{
@@ -1658,7 +1658,7 @@ func validateBillingPortalConfigurationUpdate(p params) error {
 			"business_profile[privacy_policy_url]",
 			"business_profile[terms_of_service_url]",
 			"default_return_url",
-			"login_page[logo_url]",
+			"login_page[enabled]",
 		},
 		AllowedRegex: []*regexp.Regexp{portalFeatureParamRE},
 		BoolParams:   []string{"active"},
@@ -2001,11 +2001,11 @@ func validateWebhookEndpointCreate(p params) error {
 
 func validateWebhookEndpointUpdate(p params) error {
 	return p.validate(paramSpec{
-		Allowed:      []string{"url", "secret", "retry_max_attempts", "active", "enabled"},
+		Allowed:      []string{"url", "secret", "retry_max_attempts", "disabled"},
 		AllowedRegex: []*regexp.Regexp{enabledEventsParamRE, retryBackoffParamRE},
 		Int64Params:  []string{"retry_max_attempts"},
 		Positive:     []string{"retry_max_attempts"},
-		BoolParams:   []string{"active", "enabled"},
+		BoolParams:   []string{"disabled"},
 	})
 }
 

@@ -31,6 +31,8 @@ STRIPE_PARITY_KEY=sk_test_... go test -run TestParity -v ./internal/parity
 
 Use a key for a dedicated test-mode account: the run creates customers, checkout sessions and invoices there.
 
+Beyond what a key can exercise, the test suite checks every API response and webhook event against Stripe's published object schemas for 2025-12-15.clover (`internal/stripeschema`).
+
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).

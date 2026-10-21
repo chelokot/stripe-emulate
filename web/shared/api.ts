@@ -1209,7 +1209,7 @@ function normalizeObjectRecord(record: Record<string, unknown>, type: DashboardO
 
   const eventType = readString(record, ["type", "event_type", "eventType"], "event");
   const request = firstRecord(record, ["request"]);
-  const emulator = firstRecord(record, ["emulator"]);
+  const emulator = firstRecord(record, ["emulator_metadata"]);
   const data = firstRecord(record, ["data"]);
   const objectPayload = asRecord(data?.object);
   const relatedObject = readObjectId(data?.object) ?? readString(objectPayload, ["id"], "");

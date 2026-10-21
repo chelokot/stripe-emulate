@@ -71,10 +71,7 @@ func (h *Handler) discountFromPromotionCode(idOrCode string) (billing.Discount, 
 	if active, ok := promo["active"].(bool); ok && !active {
 		return billing.Discount{}, fmt.Errorf("%w: promotion_code is inactive", billing.ErrInvalidInput)
 	}
-	couponID := ""
-	if coupon, ok := promo["coupon"].(map[string]any); ok {
-		couponID = fmt.Sprint(coupon["id"])
-	}
+	couponID := promotionCouponID(promo)
 	discount, err := discountFromCouponEvidence(couponID, h.local.coupons[couponID])
 	if err != nil {
 		return billing.Discount{}, err
@@ -198,11 +195,12 @@ func (h *Handler) handleCustomerDiscount(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusOK, h.stripeDiscount(discounts[0], customer.ID, "", ""))
 	case http.MethodDelete:
 		customer.Metadata = billing.ClearDiscountMetadata(copyStringMap(customer.Metadata))
-		updated, err := h.billing.UpdateCustomer(r.Context(), customer.ID, billing.CustomerUpdate{Metadata: customer.Metadata})
+		deleted := h.stripeDiscount(discounts[0], customer.ID, "", "")
+		_, err := h.billing.UpdateCustomer(r.Context(), customer.ID, billing.CustomerUpdate{Metadata: customer.Metadata})
 		if err == nil {
-			h.emitGenericWebhook(r, "customer.discount.deleted", discounts[0].ID, h.stripeDiscount(discounts[0], updated.ID, "", ""), webhooks.SourceAPI)
+			h.emitGenericWebhook(r, "customer.discount.deleted", discounts[0].ID, deleted, webhooks.SourceAPI)
 		}
-		writeResult(w, stripeDeleted(discounts[0].ID, "discount"), err)
+		writeResult(w, deletedDiscount(deleted), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, DELETE")
 	}
@@ -234,11 +232,12 @@ func (h *Handler) handleSubscriptionDiscount(w http.ResponseWriter, r *http.Requ
 			TimelineSource:  "api",
 			TimelineMessage: "Subscription discount deleted",
 		})
+		deleted := h.stripeDiscount(discounts[0], subscription.CustomerID, subscription.ID, "")
 		if err == nil {
-			h.emitGenericWebhook(r, "customer.discount.deleted", discounts[0].ID, h.stripeDiscount(discounts[0], updated.CustomerID, updated.ID, ""), webhooks.SourceAPI)
+			h.emitGenericWebhook(r, "customer.discount.deleted", discounts[0].ID, deleted, webhooks.SourceAPI)
 			h.emitSubscriptionWebhook(r, "customer.subscription.updated", updated, webhooks.SourceAPI)
 		}
-		writeResult(w, stripeDeleted(discounts[0].ID, "discount"), err)
+		writeResult(w, deletedDiscount(deleted), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, DELETE")
 	}
@@ -283,7 +282,7 @@ func (h *Handler) stripeDiscount(discount billing.Discount, customerID string, s
 	if discount.ID == "" {
 		discount.ID = discountID(discount)
 	}
-	coupon := map[string]any{"id": discount.CouponID, "object": "coupon"}
+	coupon := any(emptyToNil(discount.CouponID))
 	if h != nil && discount.CouponID != "" {
 		h.local.mu.Lock()
 		if stored, ok := h.local.coupons[discount.CouponID]; ok {
@@ -291,30 +290,29 @@ func (h *Handler) stripeDiscount(discount billing.Discount, customerID string, s
 		}
 		h.local.mu.Unlock()
 	}
-	// Stripe SDK 31 moved the origin of a discount into source.{coupon,promotion_code};
-	// the legacy top-level coupon stays for older SDKs.
-	source := map[string]any{"type": "coupon", "coupon": coupon}
-	if discount.PromotionCodeID != "" {
-		source["type"] = "promotion_code"
-		source["promotion_code"] = map[string]any{
-			"id":     discount.PromotionCodeID,
-			"object": "promotion_code",
-			"coupon": coupon,
-		}
-	}
 	return map[string]any{
-		"id":             discount.ID,
-		"object":         "discount",
-		"coupon":         coupon,
-		"source":         source,
-		"customer":       emptyToNil(customerID),
-		"promotion_code": emptyToNil(discount.PromotionCodeID),
-		"subscription":   emptyToNil(subscriptionID),
-		"invoice":        emptyToNil(invoiceID),
-		"invoice_item":   nil,
-		"start":          unix(discount.CreatedAt),
-		"end":            nil,
+		"id":                discount.ID,
+		"object":            "discount",
+		"checkout_session":  nil,
+		"customer":          emptyToNil(customerID),
+		"customer_account":  nil,
+		"end":               nil,
+		"invoice":           emptyToNil(invoiceID),
+		"invoice_item":      nil,
+		"promotion_code":    emptyToNil(discount.PromotionCodeID),
+		"source":            map[string]any{"type": "coupon", "coupon": coupon},
+		"start":             unix(discount.CreatedAt),
+		"subscription":      emptyToNil(subscriptionID),
+		"subscription_item": nil,
 	}
+}
+
+// deletedDiscount is Stripe's deleted_discount: the discount as it was, with
+// deleted set and no end.
+func deletedDiscount(discount map[string]any) map[string]any {
+	delete(discount, "end")
+	discount["deleted"] = true
+	return discount
 }
 
 func firstDiscountObject(h *Handler, discounts []billing.Discount, customerID string, subscriptionID string, invoiceID string) any {

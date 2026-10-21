@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chelokot/stripe-emulate/internal/api"
 	"github.com/chelokot/stripe-emulate/internal/billing"
 	"github.com/chelokot/stripe-emulate/internal/compatibility"
 	"github.com/chelokot/stripe-emulate/internal/config"
@@ -390,7 +391,8 @@ func runScenario(args []string) int {
 		}
 	}()
 
-	runner := scenarios.NewRunner(billing.NewService(store), webhooks.NewService(store))
+	billingService := billing.NewService(store)
+	runner := scenarios.NewRunner(billingService, webhooks.NewService(store), api.ScenarioPayloads(api.Options{Billing: billingService}))
 	report, runErr := runner.Run(ctx, scenario)
 	writeScenarioReports(report, reportJSON, reportMD)
 	if runErr != nil {

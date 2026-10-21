@@ -162,7 +162,7 @@ function applyWebhookEvent(event) {
     id: event.id,
     type: event.type,
     created: event.created,
-    sequence: event.emulator?.sequence,
+    sequence: event.emulator_metadata?.sequence,
     received_at: new Date().toISOString(),
   });
 

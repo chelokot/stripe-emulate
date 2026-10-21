@@ -574,9 +574,9 @@ func (s *SQLiteStore) RecordCheckoutCompletion(ctx context.Context, c billing.Ch
 	defer tx.Rollback()
 
 	if c.Subscription.ID != "" {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO subscriptions (id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			c.Subscription.ID, c.Subscription.CustomerID, c.Subscription.Status, encodeLineItems(c.Subscription.Items), encodeTime(c.Subscription.CurrentPeriodStart), encodeTime(c.Subscription.CurrentPeriodEnd), boolInt(c.Subscription.CancelAtPeriodEnd), encodeOptionalTime(c.Subscription.CanceledAt), c.Subscription.LatestInvoiceID, encodeMap(c.Subscription.Metadata)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO subscriptions (id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			c.Subscription.ID, c.Subscription.CustomerID, c.Subscription.Status, encodeLineItems(c.Subscription.Items), encodeTime(c.Subscription.CurrentPeriodStart), encodeTime(c.Subscription.CurrentPeriodEnd), boolInt(c.Subscription.CancelAtPeriodEnd), encodeOptionalTime(c.Subscription.CanceledAt), c.Subscription.LatestInvoiceID, encodeMap(c.Subscription.Metadata), encodeTime(c.Subscription.CurrentPeriodStart)); err != nil {
 			return billing.CheckoutSession{}, err
 		}
 	}
@@ -633,7 +633,7 @@ func (s *SQLiteStore) RecordCheckoutCompletion(ctx context.Context, c billing.Ch
 }
 
 func (s *SQLiteStore) GetSubscription(ctx context.Context, id string) (billing.Subscription, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata FROM subscriptions WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata, created_at FROM subscriptions WHERE id = ?`, id)
 	sub, err := scanSubscription(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return billing.Subscription{}, billing.ErrNotFound
@@ -642,7 +642,7 @@ func (s *SQLiteStore) GetSubscription(ctx context.Context, id string) (billing.S
 }
 
 func (s *SQLiteStore) ListSubscriptions(ctx context.Context) ([]billing.Subscription, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata FROM subscriptions ORDER BY current_period_start DESC, id DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata, created_at FROM subscriptions ORDER BY current_period_start DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -659,7 +659,7 @@ func (s *SQLiteStore) ListSubscriptions(ctx context.Context) ([]billing.Subscrip
 }
 
 func (s *SQLiteStore) ListSubscriptionsByCustomer(ctx context.Context, customerID string) ([]billing.Subscription, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata
+	rows, err := s.db.QueryContext(ctx, `SELECT id, customer_id, status, items, current_period_start, current_period_end, cancel_at_period_end, canceled_at, latest_invoice_id, metadata, created_at
 		FROM subscriptions WHERE customer_id = ? ORDER BY current_period_start DESC, id DESC`, customerID)
 	if err != nil {
 		return nil, err
@@ -1921,10 +1921,10 @@ func applyPaymentIntentData(cs *billing.CheckoutSession, raw string) {
 
 func scanSubscription(row scanner) (billing.Subscription, error) {
 	var sub billing.Subscription
-	var items, start, end, metadata string
+	var items, start, end, metadata, createdAt string
 	var cancelAtPeriodEnd int
 	var canceledAt sql.NullString
-	if err := row.Scan(&sub.ID, &sub.CustomerID, &sub.Status, &items, &start, &end, &cancelAtPeriodEnd, &canceledAt, &sub.LatestInvoiceID, &metadata); err != nil {
+	if err := row.Scan(&sub.ID, &sub.CustomerID, &sub.Status, &items, &start, &end, &cancelAtPeriodEnd, &canceledAt, &sub.LatestInvoiceID, &metadata, &createdAt); err != nil {
 		return sub, err
 	}
 	sub.Object = billing.ObjectSubscription
@@ -1937,6 +1937,7 @@ func scanSubscription(row scanner) (billing.Subscription, error) {
 		sub.CanceledAt = &t
 	}
 	sub.Metadata = decodeMap(metadata)
+	sub.CreatedAt = decodeTime(createdAt)
 	return sub, nil
 }
 

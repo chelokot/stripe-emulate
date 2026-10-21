@@ -103,8 +103,8 @@ func TestUpcomingNextPeriodWithTaxNoParams(t *testing.T) {
 	if len(preview.Lines.Data) != 1 || preview.Lines.Data[0].Amount != 4900 || preview.Lines.Data[0].Proration {
 		t.Fatalf("lines = %#v, want 1 line amount=4900 proration=false", preview.Lines.Data)
 	}
-	if preview.PeriodStart != sub.CurrentPeriodEnd {
-		t.Fatalf("period_start = %d, want current_period_end %d", preview.PeriodStart, sub.CurrentPeriodEnd)
+	if preview.PeriodStart != sub.Items.Data[0].CurrentPeriodEnd {
+		t.Fatalf("period_start = %d, want current_period_end %d", preview.PeriodStart, sub.Items.Data[0].CurrentPeriodEnd)
 	}
 	if preview.PeriodEnd <= preview.PeriodStart {
 		t.Fatalf("period_end = %d must be after period_start %d", preview.PeriodEnd, preview.PeriodStart)
@@ -160,7 +160,7 @@ func TestUpcomingItemOverrideKeepsProrationPath(t *testing.T) {
 		"default_tax_rates[0]": {taxRateID},
 	})
 	itemID := created.Items.Data[0].ID
-	periodStart := created.CurrentPeriodStart
+	periodStart := created.Items.Data[0].CurrentPeriodStart
 
 	preview := postForm[upcomingPreviewFields](t, handler, "/v1/invoices/create_preview", url.Values{
 		"customer":                                 {customer.ID},

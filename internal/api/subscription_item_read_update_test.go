@@ -157,7 +157,7 @@ func TestSubscriptionItemUpdateAlwaysInvoiceBillsDelta(t *testing.T) {
 	updated := postForm[itemReadResponse](t, handler, "/v1/subscription_items/"+itemID, url.Values{
 		"quantity":           {"2"},
 		"proration_behavior": {"always_invoice"},
-		"proration_date":     {fmt.Sprint(subscription.CurrentPeriodStart)},
+		"proration_date":     {fmt.Sprint(subscription.Items.Data[0].CurrentPeriodStart)},
 	})
 	if updated.Quantity != 2 || updated.ID != itemID {
 		t.Fatalf("always_invoice item update = %#v, want quantity 2 stable id", updated)
@@ -188,12 +188,14 @@ func TestNestedCustomerSubscriptionDiscountRoutes(t *testing.T) {
 
 	discount := getJSON[struct {
 		Object string `json:"object"`
-		Coupon struct {
-			ID string `json:"id"`
-		} `json:"coupon"`
+		Source struct {
+			Coupon struct {
+				ID string `json:"id"`
+			} `json:"coupon"`
+		} `json:"source"`
 		Subscription string `json:"subscription"`
 	}](t, handler, nestedPath)
-	if discount.Object != "discount" || discount.Coupon.ID != coupon.ID || discount.Subscription != discounted.ID {
+	if discount.Object != "discount" || discount.Source.Coupon.ID != coupon.ID || discount.Subscription != discounted.ID {
 		t.Fatalf("nested discount = %#v, want %s coupon on %s", discount, coupon.ID, discounted.ID)
 	}
 

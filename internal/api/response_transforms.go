@@ -175,6 +175,12 @@ func (h *Handler) expandableObject(r *http.Request, id string) (any, bool) {
 			return nil, false
 		}
 		object = stripePaymentIntent(intent)
+	case strings.HasPrefix(id, "txn_"):
+		intent, err := h.billing.GetPaymentIntent(ctx, strings.TrimPrefix(id, "txn_"))
+		if err != nil {
+			return nil, false
+		}
+		object = stripeBalanceTransaction(intent)
 	case strings.HasPrefix(id, "cs_"):
 		session, err := h.billing.GetCheckoutSession(ctx, id)
 		if err != nil {

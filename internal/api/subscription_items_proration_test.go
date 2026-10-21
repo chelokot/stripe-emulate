@@ -72,7 +72,7 @@ func TestSubscriptionItemCreateAlwaysInvoiceSeatAdd(t *testing.T) {
 		"price":              {seat.ID},
 		"quantity":           {"2"},
 		"proration_behavior": {"always_invoice"},
-		"proration_date":     {strconv.FormatInt(created.CurrentPeriodStart, 10)},
+		"proration_date":     {strconv.FormatInt(created.Items.Data[0].CurrentPeriodStart, 10)},
 	})
 	if item.Object != "subscription_item" || item.Quantity != 2 || item.Price.ID != seat.ID {
 		t.Fatalf("created item = %#v", item)
@@ -124,8 +124,8 @@ func TestSubscriptionItemCreateCreateProrationsDefersToRenewal(t *testing.T) {
 		"default_tax_rates[0]": {taxRateID},
 		"test_clock":           {"clock_seat_create_prorations"},
 	})
-	periodStart := created.CurrentPeriodStart
-	periodEnd := created.CurrentPeriodEnd
+	periodStart := created.Items.Data[0].CurrentPeriodStart
+	periodEnd := created.Items.Data[0].CurrentPeriodEnd
 	// Mid-period pin for remaining fraction.
 	mid := periodStart + (periodEnd-periodStart)/2
 	remaining := periodEnd - mid
@@ -293,7 +293,7 @@ func TestSubscriptionItemDeleteAlwaysInvoiceNoInvoiceOnDowngrade(t *testing.T) {
 		Deleted bool   `json:"deleted"`
 	}](t, handler, "/v1/subscription_items/"+item.ID, url.Values{
 		"proration_behavior": {"always_invoice"},
-		"proration_date":     {strconv.FormatInt(created.CurrentPeriodStart, 10)},
+		"proration_date":     {strconv.FormatInt(created.Items.Data[0].CurrentPeriodStart, 10)},
 	})
 	if deleted.ID != item.ID || !deleted.Deleted || deleted.Object != "subscription_item" {
 		t.Fatalf("deleted = %#v", deleted)
@@ -334,8 +334,8 @@ func TestSubscriptionItemDeleteCreateProrationsNegativePending(t *testing.T) {
 		"quantity":           {"2"},
 		"proration_behavior": {"none"},
 	})
-	periodStart := created.CurrentPeriodStart
-	periodEnd := created.CurrentPeriodEnd
+	periodStart := created.Items.Data[0].CurrentPeriodStart
+	periodEnd := created.Items.Data[0].CurrentPeriodEnd
 	mid := periodStart + (periodEnd-periodStart)/2
 	remaining := periodEnd - mid
 	periodSec := periodEnd - periodStart
@@ -567,7 +567,7 @@ func TestSubscriptionItemCreateTaxRatesEvidenceOnly(t *testing.T) {
 		"price":              {seat.ID},
 		"quantity":           {"2"},
 		"proration_behavior": {"always_invoice"},
-		"proration_date":     {strconv.FormatInt(created.CurrentPeriodStart, 10)},
+		"proration_date":     {strconv.FormatInt(created.Items.Data[0].CurrentPeriodStart, 10)},
 		"tax_rates[0]":       {itemTxr.ID},
 	})
 	if len(item.TaxRates) != 1 || item.TaxRates[0].ID != itemTxr.ID {

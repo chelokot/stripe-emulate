@@ -1,4 +1,4 @@
-package scenarios
+package scenarios_test
 
 import (
 	"context"
@@ -11,13 +11,15 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/chelokot/stripe-emulate/internal/api"
 	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/scenarios"
 	"github.com/chelokot/stripe-emulate/internal/storage"
 	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 func TestRunnerResolvesReferencesAndCheckoutAliases(t *testing.T) {
-	runner := NewRunner(newTestBilling(t), nil)
+	runner := scenarios.NewRunner(newTestBilling(t), nil, nil)
 	scenario := mustLoad(t, `
 name: checkout-aliases
 catalog:
@@ -58,7 +60,7 @@ steps:
 	if err != nil {
 		t.Fatalf("Run returned error: %v\n%s", err, report.Markdown())
 	}
-	if report.ExitCode() != ExitPass {
+	if report.ExitCode() != scenarios.ExitPass {
 		t.Fatalf("ExitCode = %d, want pass", report.ExitCode())
 	}
 	if got := len(report.Steps); got != 4 {
@@ -82,7 +84,7 @@ func TestRunnerInvoiceRetryMutatesBillingState(t *testing.T) {
 		}
 	})
 
-	report, err := NewRunner(billing.NewService(store), nil).Run(ctx, mustLoad(t, `
+	report, err := scenarios.NewRunner(billing.NewService(store), nil, nil).Run(ctx, mustLoad(t, `
 name: invoice-retry-mutates
 clock:
   start: "2026-05-08T00:00:00Z"
@@ -147,7 +149,7 @@ func TestRunnerInvoiceRetryCanDeclineThenSucceedAtSameClock(t *testing.T) {
 		}
 	})
 
-	report, err := NewRunner(billing.NewService(store), nil).Run(ctx, mustLoad(t, `
+	report, err := scenarios.NewRunner(billing.NewService(store), nil, nil).Run(ctx, mustLoad(t, `
 name: invoice-retry-same-clock
 clock:
   start: "2026-05-08T00:00:00Z"
@@ -209,7 +211,7 @@ func TestRunnerInvoiceRetryWithoutInvoiceKeepsEvidenceFallback(t *testing.T) {
 		}
 	})
 
-	report, err := NewRunner(billing.NewService(store), nil).Run(ctx, mustLoad(t, `
+	report, err := scenarios.NewRunner(billing.NewService(store), nil, nil).Run(ctx, mustLoad(t, `
 name: invoice-retry-evidence
 steps:
   - id: retry-payment
@@ -242,7 +244,7 @@ func TestRunnerClockAdvanceRenewsAndCancelsSubscriptions(t *testing.T) {
 		}
 	})
 
-	report, err := NewRunner(billing.NewService(store), webhooks.NewService(store)).Run(ctx, mustLoad(t, `
+	report, err := newTestRunner(store).Run(ctx, mustLoad(t, `
 name: clock-renewal-cancel
 clock:
   start: "2026-05-08T00:00:00Z"
@@ -335,7 +337,7 @@ func TestRunnerClockAdvanceActivatesTrialAndEmitsWebhook(t *testing.T) {
 		}
 	})
 
-	report, err := NewRunner(billing.NewService(store), webhooks.NewService(store)).Run(ctx, mustLoad(t, `
+	report, err := newTestRunner(store).Run(ctx, mustLoad(t, `
 name: clock-trial-activation
 clock:
   start: "2026-05-08T00:00:00Z"
@@ -395,7 +397,7 @@ func TestRunnerCheckoutCancelAndSubscriptionLifecycleActions(t *testing.T) {
 		}
 	})
 
-	report, err := NewRunner(billing.NewService(store), webhooks.NewService(store)).Run(ctx, mustLoad(t, `
+	report, err := newTestRunner(store).Run(ctx, mustLoad(t, `
 name: lifecycle-actions
 clock:
   start: "2026-05-08T00:00:00Z"
@@ -509,7 +511,7 @@ func TestRunnerInvoiceFailPaymentActionMutatesOpenInvoice(t *testing.T) {
 		}
 	})
 
-	report, err := NewRunner(billing.NewService(store), webhooks.NewService(store)).Run(ctx, mustLoad(t, `
+	report, err := newTestRunner(store).Run(ctx, mustLoad(t, `
 name: invoice-fail-payment
 catalog:
   products:
@@ -579,7 +581,7 @@ func TestRunnerAppAssertPass(t *testing.T) {
 	}))
 	defer server.Close()
 
-	report, err := NewRunner(nil, nil).Run(context.Background(), mustLoad(t, `
+	report, err := scenarios.NewRunner(nil, nil, nil).Run(context.Background(), mustLoad(t, `
 name: assertion-pass
 app:
   assertions:
@@ -598,7 +600,7 @@ steps:
 	if gotPath != "/assertions/workspace/subscription" {
 		t.Fatalf("callback path = %q, want slash-converted target", gotPath)
 	}
-	if report.ExitCode() != ExitPass {
+	if report.ExitCode() != scenarios.ExitPass {
 		t.Fatalf("ExitCode = %d, want 0", report.ExitCode())
 	}
 }
@@ -609,7 +611,7 @@ func TestRunnerAppAssertFailureExitCode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	report, err := NewRunner(nil, nil).Run(context.Background(), mustLoad(t, `
+	report, err := scenarios.NewRunner(nil, nil, nil).Run(context.Background(), mustLoad(t, `
 name: assertion-fail
 app:
   assertions:
@@ -622,11 +624,11 @@ steps:
       expected:
         status: active
 `))
-	if !errors.Is(err, ErrAssertionFailed) {
-		t.Fatalf("Run error = %v, want ErrAssertionFailed", err)
+	if !errors.Is(err, scenarios.ErrAssertionFailed) {
+		t.Fatalf("Run error = %v, want scenarios.ErrAssertionFailed", err)
 	}
-	if report.ExitCode() != ExitAssertionFailed {
-		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), ExitAssertionFailed)
+	if report.ExitCode() != scenarios.ExitAssertionFailed {
+		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), scenarios.ExitAssertionFailed)
 	}
 	if !strings.Contains(report.Markdown(), "status was past_due") {
 		t.Fatalf("Markdown missing assertion detail:\n%s", report.Markdown())
@@ -658,7 +660,7 @@ func TestRunnerWebhookReplayFailureSimulation(t *testing.T) {
 		t.Fatalf("CreateEndpoint: %v", err)
 	}
 
-	report, err := NewRunner(billing.NewService(store), webhookService).Run(ctx, mustLoad(t, `
+	report, err := scenarios.NewRunner(billing.NewService(store), webhookService, api.ScenarioPayloads(api.Options{Billing: billing.NewService(store)})).Run(ctx, mustLoad(t, `
 name: webhook-replay-failure
 catalog:
   products:
@@ -697,7 +699,7 @@ steps:
 	if err != nil {
 		t.Fatalf("Run returned error: %v\n%s", err, report.Markdown())
 	}
-	if report.ExitCode() != ExitPass {
+	if report.ExitCode() != scenarios.ExitPass {
 		t.Fatalf("ExitCode = %d, want pass", report.ExitCode())
 	}
 	attempts, ok := report.Steps[3].Output["delivery_attempts"].([]webhooks.DeliveryAttempt)
@@ -738,7 +740,7 @@ func TestRunnerWebhookReplaySimulateAppFailureThenDeliver(t *testing.T) {
 		t.Fatalf("CreateEndpoint: %v", err)
 	}
 
-	report, err := NewRunner(billing.NewService(store), webhookService).Run(ctx, mustLoad(t, `
+	report, err := scenarios.NewRunner(billing.NewService(store), webhookService, api.ScenarioPayloads(api.Options{Billing: billing.NewService(store)})).Run(ctx, mustLoad(t, `
 name: webhook-replay-simulate-app-failure
 catalog:
   products:
@@ -817,7 +819,7 @@ func TestRunnerWebhookDeliveryConvenienceActionsUseGenericReplay(t *testing.T) {
 		t.Fatalf("CreateEndpoint: %v", err)
 	}
 
-	report, err := NewRunner(billing.NewService(store), webhookService).Run(ctx, mustLoad(t, `
+	report, err := scenarios.NewRunner(billing.NewService(store), webhookService, api.ScenarioPayloads(api.Options{Billing: billing.NewService(store)})).Run(ctx, mustLoad(t, `
 name: webhook-delivery-convenience-actions
 catalog:
   products:
@@ -880,7 +882,7 @@ func TestRunnerAppCallbackErrorExitCode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	report, err := NewRunner(nil, nil).Run(context.Background(), mustLoad(t, `
+	report, err := scenarios.NewRunner(nil, nil, nil).Run(context.Background(), mustLoad(t, `
 name: callback-error
 app:
   assertions:
@@ -893,19 +895,19 @@ steps:
       expected:
         status: active
 `))
-	if !errors.Is(err, ErrAppCallbackFailure) {
-		t.Fatalf("Run error = %v, want ErrAppCallbackFailure", err)
+	if !errors.Is(err, scenarios.ErrAppCallbackFailure) {
+		t.Fatalf("Run error = %v, want scenarios.ErrAppCallbackFailure", err)
 	}
-	if report.ExitCode() != ExitAppCallbackFailure {
-		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), ExitAppCallbackFailure)
+	if report.ExitCode() != scenarios.ExitAppCallbackFailure {
+		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), scenarios.ExitAppCallbackFailure)
 	}
 }
 
 func TestReportJSONMarkdownAndInvalidExitCode(t *testing.T) {
-	report := Report{
+	report := scenarios.Report{
 		Name:        "bad",
 		Status:      "failed",
-		FailureType: FailureInvalidConfig,
+		FailureType: scenarios.FailureInvalidConfig,
 		Errors:      []string{"name is required"},
 	}
 	body, err := report.JSON()
@@ -918,19 +920,24 @@ func TestReportJSONMarkdownAndInvalidExitCode(t *testing.T) {
 	if !strings.Contains(report.Markdown(), "Exit code: `2`") {
 		t.Fatalf("Markdown = %s", report.Markdown())
 	}
-	if report.ExitCode() != ExitInvalidConfig {
-		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), ExitInvalidConfig)
+	if report.ExitCode() != scenarios.ExitInvalidConfig {
+		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), scenarios.ExitInvalidConfig)
 	}
 }
 
 func TestReportRuntimeFailureExitCode(t *testing.T) {
-	report := Report{Name: "runtime", Status: "failed", FailureType: FailureRunner}
-	if report.ExitCode() != ExitRuntimeFailure {
-		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), ExitRuntimeFailure)
+	report := scenarios.Report{Name: "runtime", Status: "failed", FailureType: scenarios.FailureRunner}
+	if report.ExitCode() != scenarios.ExitRuntimeFailure {
+		t.Fatalf("ExitCode = %d, want %d", report.ExitCode(), scenarios.ExitRuntimeFailure)
 	}
 	if !strings.Contains(report.Markdown(), "Exit code: `4`") {
 		t.Fatalf("Markdown = %s", report.Markdown())
 	}
+}
+
+func newTestRunner(store *storage.SQLiteStore) *scenarios.Runner {
+	billingService := billing.NewService(store)
+	return scenarios.NewRunner(billingService, webhooks.NewService(store), api.ScenarioPayloads(api.Options{Billing: billingService}))
 }
 
 func newTestBilling(t *testing.T) *billing.Service {
@@ -947,9 +954,9 @@ func newTestBilling(t *testing.T) *billing.Service {
 	return billing.NewService(store)
 }
 
-func mustLoad(t *testing.T, raw string) Scenario {
+func mustLoad(t *testing.T, raw string) scenarios.Scenario {
 	t.Helper()
-	scenario, err := Load([]byte(raw))
+	scenario, err := scenarios.Load([]byte(raw))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

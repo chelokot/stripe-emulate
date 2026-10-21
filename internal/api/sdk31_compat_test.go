@@ -7,8 +7,8 @@ import (
 	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
-// SDK 31 moved a discount's origin into source.{coupon,promotion_code}; the
-// legacy top-level coupon object stays for older SDKs.
+// A discount names its coupon in source.coupon and, when a promotion code
+// applied it, the promotion code id beside it.
 func TestDiscountSourceShape(t *testing.T) {
 	handler := newTestHandler(t)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{"email": {"sdk31@example.test"}})
@@ -33,31 +33,26 @@ func TestDiscountSourceShape(t *testing.T) {
 	})
 
 	type discountShape struct {
-		Coupon struct {
-			ID string `json:"id"`
-		} `json:"coupon"`
 		Source struct {
 			Type   string `json:"type"`
 			Coupon struct {
 				ID     string `json:"id"`
 				Object string `json:"object"`
 			} `json:"coupon"`
-			PromotionCode struct {
-				ID string `json:"id"`
-			} `json:"promotion_code"`
 		} `json:"source"`
-		PromotionCode any `json:"promotion_code"`
+		PromotionCode *string `json:"promotion_code"`
 	}
 
 	couponDiscount := getJSON[discountShape](t, handler, "/v1/subscriptions/"+subscription.ID+"/discount")
-	if couponDiscount.Coupon.ID != coupon.ID {
-		t.Fatalf("legacy coupon = %#v, want %s", couponDiscount.Coupon, coupon.ID)
+	if couponDiscount.PromotionCode != nil {
+		t.Fatalf("coupon discount promotion_code = %v, want null", *couponDiscount.PromotionCode)
 	}
 	if couponDiscount.Source.Type != "coupon" || couponDiscount.Source.Coupon.ID != coupon.ID || couponDiscount.Source.Coupon.Object != "coupon" {
 		t.Fatalf("coupon source = %#v, want type=coupon with %s", couponDiscount.Source, coupon.ID)
 	}
 
-	// A promotion-code discount points the source at the promotion code.
+	// A promotion-code discount keeps the coupon as its source and names the
+	// promotion code beside it.
 	promo := postForm[struct {
 		ID string `json:"id"`
 	}](t, handler, "/v1/promotion_codes", url.Values{
@@ -71,11 +66,8 @@ func TestDiscountSourceShape(t *testing.T) {
 		"discounts[0][promotion_code]": {promo.ID},
 	})
 	promoDiscount := getJSON[discountShape](t, handler, "/v1/subscriptions/"+promoSub.ID+"/discount")
-	if promoDiscount.Source.Type != "promotion_code" || promoDiscount.Source.PromotionCode.ID != promo.ID {
-		t.Fatalf("promotion_code source = %#v, want type=promotion_code with %s", promoDiscount.Source, promo.ID)
-	}
-	if promoDiscount.Source.Coupon.ID != coupon.ID {
-		t.Fatalf("promotion_code source coupon = %s, want %s", promoDiscount.Source.Coupon.ID, coupon.ID)
+	if promoDiscount.Source.Type != "coupon" || promoDiscount.Source.Coupon.ID != coupon.ID || promoDiscount.PromotionCode == nil || *promoDiscount.PromotionCode != promo.ID {
+		t.Fatalf("promotion code discount = %#v, want coupon %s source with promotion_code %s", promoDiscount, coupon.ID, promo.ID)
 	}
 }
 

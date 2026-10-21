@@ -408,23 +408,23 @@ func builtinCorpus() []caseSpec {
 			},
 		},
 		{
-			ID:              "webhook_endpoints.update.invalid_active",
-			Name:            "Webhook endpoint update rejects invalid active flag",
+			ID:              "webhook_endpoints.update.invalid_disabled",
+			Name:            "Webhook endpoint update rejects invalid disabled flag",
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
 			Steps: []requestSpec{{
-				Name:   "update webhook endpoint with invalid active flag",
+				Name:   "update webhook endpoint with invalid disabled flag",
 				Method: http.MethodPost,
 				Path:   "/v1/webhook_endpoints/we_missing",
-				Params: map[string]string{"active": "maybe"},
+				Params: map[string]string{"disabled": "maybe"},
 			}},
 			Expect: Observation{
 				HTTPStatus: http.StatusBadRequest,
 				Error: &ErrorObservation{
 					Type:  "invalid_request_error",
 					Code:  "parameter_invalid",
-					Param: "active",
+					Param: "disabled",
 				},
 			},
 		},

@@ -1,8 +1,9 @@
-package scenarios
+package scenarios_test
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/chelokot/stripe-emulate/internal/scenarios"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -30,16 +31,16 @@ func TestSaaSExampleScenariosPass(t *testing.T) {
 		"saas-workspace-upgrade.yml",
 	} {
 		t.Run(name, func(t *testing.T) {
-			scenario, err := LoadFile(filepath.Join("..", "..", "examples", name))
+			scenario, err := scenarios.LoadFile(filepath.Join("..", "..", "examples", name))
 			if err != nil {
 				t.Fatalf("LoadFile: %v", err)
 			}
 			scenario.App.Assertions.BaseURL = assertions.URL
-			report, err := NewRunner(nil, nil).Run(context.Background(), scenario)
+			report, err := scenarios.NewRunner(nil, nil, nil).Run(context.Background(), scenario)
 			if err != nil {
 				t.Fatalf("Run returned error: %v\n%s", err, report.Markdown())
 			}
-			if report.ExitCode() != ExitPass {
+			if report.ExitCode() != scenarios.ExitPass {
 				t.Fatalf("ExitCode = %d, want pass", report.ExitCode())
 			}
 		})
@@ -52,13 +53,13 @@ func TestSaaSSupportBundleContainsAdoptionEvidence(t *testing.T) {
 	}))
 	defer assertions.Close()
 
-	scenario, err := LoadFile(filepath.Join("..", "..", "examples", "saas-adoption-contract.yml"))
+	scenario, err := scenarios.LoadFile(filepath.Join("..", "..", "examples", "saas-adoption-contract.yml"))
 	if err != nil {
 		t.Fatalf("LoadFile: %v", err)
 	}
 	scenario.App.Assertions.BaseURL = assertions.URL
 
-	report, err := NewRunner(nil, nil).Run(context.Background(), scenario)
+	report, err := scenarios.NewRunner(nil, nil, nil).Run(context.Background(), scenario)
 	if err != nil {
 		t.Fatalf("Run returned error: %v\n%s", err, report.Markdown())
 	}

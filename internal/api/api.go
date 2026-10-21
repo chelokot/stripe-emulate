@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,6 +66,10 @@ type Handler struct {
 }
 
 func New(opts Options) http.Handler {
+	return newHandler(opts)
+}
+
+func newHandler(opts Options) *Handler {
 	h := &Handler{
 		billing:     opts.Billing,
 		webhooks:    opts.Webhooks,
@@ -1140,16 +1145,10 @@ func (h *Handler) handleAccountLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	linkType := p.stringDefault("type", "account_onboarding")
 	link := map[string]any{
-		"id":          "link_" + sanitizeID(accountID+"_"+linkType+"_"+time.Now().UTC().Format(time.RFC3339Nano)),
-		"object":      billing.ObjectAccountLink,
-		"created":     time.Now().UTC().Unix(),
-		"expires_at":  time.Now().UTC().Add(30 * time.Minute).Unix(),
-		"url":         h.absoluteURL(r, "/connect/accounts/"+accountID+"/"+linkType),
-		"account":     accountID,
-		"type":        linkType,
-		"livemode":    false,
-		"refresh_url": emptyToNil(p.string("refresh_url")),
-		"return_url":  emptyToNil(p.string("return_url")),
+		"object":     billing.ObjectAccountLink,
+		"created":    time.Now().UTC().Unix(),
+		"expires_at": time.Now().UTC().Add(30 * time.Minute).Unix(),
+		"url":        h.absoluteURL(r, "/connect/accounts/"+accountID+"/"+linkType),
 	}
 	writeJSON(w, http.StatusOK, link)
 }
@@ -1176,12 +1175,10 @@ func (h *Handler) handleAccountSessions(w http.ResponseWriter, r *http.Request) 
 	sessionID := "accsess_" + sanitizeID(accountID+"_"+time.Now().UTC().Format(time.RFC3339Nano))
 	expiresAt := time.Now().UTC().Add(30 * time.Minute).Unix()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":            sessionID,
 		"object":        billing.ObjectAccountSession,
 		"account":       accountID,
 		"client_secret": sessionID + "_secret_emulator",
 		"components":    accountSessionComponents(p),
-		"created":       time.Now().UTC().Unix(),
 		"expires_at":    expiresAt,
 		"livemode":      false,
 	})
@@ -1916,7 +1913,10 @@ func (h *Handler) handleBillingPortalSessions(w http.ResponseWriter, r *http.Req
 		"livemode":         false,
 	}
 	if flowType != "" {
-		session["flow"] = map[string]any{"type": flowType}
+		session["flow"] = map[string]any{
+			"after_completion": map[string]any{"hosted_confirmation": nil, "redirect": nil, "type": stringDefault(p.string("flow_data[after_completion][type]"), "portal_homepage")},
+			"type":             flowType,
+		}
 	}
 	writeJSON(w, http.StatusOK, session)
 }
@@ -3082,6 +3082,8 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		"customer":                         emptyToNil(customerID),
 		"parent":                           stripeInvoiceParent(subscriptionID),
 		"amount_due":                       total,
+		"amount_overpaid":                  0,
+		"issuer":                           map[string]any{"type": "self"},
 		"amount_paid":                      0,
 		"amount_remaining":                 total,
 		"amount_shipping":                  0,
@@ -3305,6 +3307,8 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 		"customer":                         emptyToNil(customerID),
 		"parent":                           stripeInvoiceParent(subscription.ID),
 		"amount_due":                       total,
+		"amount_overpaid":                  0,
+		"issuer":                           map[string]any{"type": "self"},
 		"amount_paid":                      0,
 		"amount_remaining":                 total,
 		"amount_shipping":                  0,
@@ -4157,7 +4161,7 @@ func (h *Handler) handleCreditNotes(w http.ResponseWriter, r *http.Request) {
 		})
 		data := make([]map[string]any, 0, len(notes))
 		for _, note := range notes {
-			data = append(data, stripeCreditNote(note))
+			data = append(data, h.stripeCreditNote(r.Context(), note))
 		}
 		writeResult(w, stripeListFromRequest(r, data), err)
 	case http.MethodPost:
@@ -4184,9 +4188,9 @@ func (h *Handler) handleCreditNotes(w http.ResponseWriter, r *http.Request) {
 			Metadata:        p.metadata(),
 		})
 		if err == nil {
-			h.emitGenericWebhook(r, "credit_note.created", note.ID, stripeCreditNote(note), webhooks.SourceAPI)
+			h.emitGenericWebhook(r, "credit_note.created", note.ID, h.stripeCreditNote(r.Context(), note), webhooks.SourceAPI)
 		}
-		writeResult(w, stripeCreditNote(note), err)
+		writeResult(w, h.stripeCreditNote(r.Context(), note), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
@@ -4211,15 +4215,18 @@ func (h *Handler) handleCreditNote(w http.ResponseWriter, r *http.Request) {
 		}
 		description := firstNonEmptyString(note.Memo, note.Reason, "Credit note")
 		data := []map[string]any{{
-			"id":          "cnli_" + note.ID,
-			"object":      "credit_note_line_item",
-			"amount":      -note.Amount,
-			"description": description,
-			"credit_note": note.ID,
-			"invoice":     note.InvoiceID,
-			"quantity":    1,
-			"unit_amount": -note.Amount,
-			"livemode":    false,
+			"id":                    "cnli_" + note.ID,
+			"object":                "credit_note_line_item",
+			"amount":                -note.Amount,
+			"description":           description,
+			"discount_amount":       0,
+			"discount_amounts":      []any{},
+			"livemode":              false,
+			"pretax_credit_amounts": []any{},
+			"quantity":              1,
+			"tax_rates":             []any{},
+			"type":                  "custom_line_item",
+			"unit_amount":           -note.Amount,
 		}}
 		writeJSON(w, http.StatusOK, stripeListFromRequest(r, data))
 		return
@@ -4231,9 +4238,9 @@ func (h *Handler) handleCreditNote(w http.ResponseWriter, r *http.Request) {
 		}
 		note, err := h.billing.VoidCreditNote(r.Context(), id)
 		if err == nil {
-			h.emitGenericWebhook(r, "credit_note.voided", note.ID, stripeCreditNote(note), webhooks.SourceAPI)
+			h.emitGenericWebhook(r, "credit_note.voided", note.ID, h.stripeCreditNote(r.Context(), note), webhooks.SourceAPI)
 		}
-		writeResult(w, stripeCreditNote(note), err)
+		writeResult(w, h.stripeCreditNote(r.Context(), note), err)
 		return
 	}
 	if hasAction && action != "" {
@@ -4245,7 +4252,7 @@ func (h *Handler) handleCreditNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	note, err := h.billing.GetCreditNote(r.Context(), id)
-	writeResult(w, stripeCreditNote(note), err)
+	writeResult(w, h.stripeCreditNote(r.Context(), note), err)
 }
 
 func (h *Handler) handlePaymentIntents(w http.ResponseWriter, r *http.Request) {
@@ -4580,7 +4587,7 @@ func (h *Handler) handleTestClock(w http.ResponseWriter, r *http.Request) {
 				writeResult(w, nil, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, stripeDeleted(id, "test_clock"))
+			writeJSON(w, http.StatusOK, stripeDeleted(id, billing.ObjectTestClock))
 			return
 		}
 		if r.Method != http.MethodGet {
@@ -4909,10 +4916,10 @@ func (h *Handler) handleWebhookEndpoints(w http.ResponseWriter, r *http.Request)
 			RetryMaxAttempts: int(p.int64("retry_max_attempts")),
 			RetryBackoff:     p.list("retry_backoff"),
 		})
-		writeResult(w, maskEndpoint(endpoint), err)
+		writeResult(w, stripeWebhookEndpoint(endpoint), err)
 	case http.MethodGet:
 		endpoints, err := h.webhooks.ListEndpoints(r.Context(), webhooks.EndpointFilter{})
-		writeResult(w, map[string]any{"object": "list", "data": maskEndpoints(endpoints)}, err)
+		writeResult(w, stripeListFromRequest(r, stripeWebhookEndpoints(endpoints)), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
@@ -4949,7 +4956,7 @@ func (h *Handler) handleWebhookEndpoint(w http.ResponseWriter, r *http.Request) 
 	switch r.Method {
 	case http.MethodGet:
 		endpoint, err := h.webhooks.GetEndpoint(r.Context(), id)
-		writeResult(w, maskEndpoint(endpoint), err)
+		writeResult(w, stripeWebhookEndpoint(endpoint), err)
 	case http.MethodPost, http.MethodPatch:
 		p, err := parseParams(r)
 		if err != nil {
@@ -4966,11 +4973,8 @@ func (h *Handler) handleWebhookEndpoint(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		active := current.Active
-		if p.has("active") {
-			active = p.boolDefault("active", current.Active)
-		}
-		if p.has("enabled") {
-			active = p.boolDefault("enabled", current.Active)
+		if p.has("disabled") {
+			active = !p.boolDefault("disabled", false)
 		}
 		endpoint, err := h.webhooks.UpdateEndpoint(r.Context(), id, webhooks.Endpoint{
 			URL:              p.string("url"),
@@ -4980,10 +4984,10 @@ func (h *Handler) handleWebhookEndpoint(w http.ResponseWriter, r *http.Request) 
 			RetryBackoff:     p.list("retry_backoff"),
 			Active:           active,
 		})
-		writeResult(w, maskEndpoint(endpoint), err)
+		writeResult(w, stripeWebhookEndpoint(endpoint), err)
 	case http.MethodDelete:
 		endpoint, err := h.webhooks.DeleteEndpoint(r.Context(), id)
-		writeResult(w, maskEndpoint(endpoint), err)
+		writeResult(w, stripeDeleted(endpoint.ID, "webhook_endpoint"), err)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST, PATCH, DELETE")
 	}
@@ -5395,22 +5399,7 @@ func disputeFixturePayload(fixture fixtures.DisputeFixture) map[string]any {
 	if status == "" {
 		status = "needs_response"
 	}
-	return map[string]any{
-		"id":                   id,
-		"object":               "dispute",
-		"charge":               strings.TrimSpace(fixture.Charge),
-		"amount":               amount,
-		"currency":             currency,
-		"reason":               firstNonEmptyString(fixture.Reason, "general"),
-		"status":               status,
-		"evidence":             map[string]any{},
-		"evidence_details":     map[string]any{"has_evidence": false, "submission_count": 0, "past_due": false},
-		"balance_transactions": []map[string]any{},
-		"is_charge_refundable": true,
-		"metadata":             nonNilMap(fixture.Metadata),
-		"created":              now.Unix(),
-		"livemode":             false,
-	}
+	return disputeEvidence(id, strings.TrimSpace(fixture.Charge), amount, currency, firstNonEmptyString(fixture.Reason, "general"), status, fixture.Metadata, now)
 }
 
 // applyFixtureTaxRates seeds tax_rate evidence from the fixture pack (same path as disputes).
@@ -5573,18 +5562,7 @@ func (h *Handler) promotionCodeFixturePayload(fixture fixtures.PromotionCodeFixt
 	if fixture.Active != nil {
 		active = *fixture.Active
 	}
-	// Field set matches POST /v1/promotion_codes (max_redemptions/expires_at not stored by that handler).
-	return map[string]any{
-		"id":       id,
-		"object":   "promotion_code",
-		"code":     code,
-		"coupon":   cloneEvidence(coupon),
-		"active":   active,
-		"customer": emptyToNil(strings.TrimSpace(fixture.Customer)),
-		"metadata": nonNilMap(fixture.Metadata),
-		"created":  now.Unix(),
-		"livemode": false,
-	}, nil
+	return promotionCodeEvidence(id, code, coupon, active, strings.TrimSpace(fixture.Customer), fixture.Metadata, now), nil
 }
 
 // fixtureTaxRateResolver is injected into fixtures.Service so Apply can resolve
@@ -6092,7 +6070,7 @@ func (h *Handler) handleScenarioRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runner := scenarios.NewRunner(h.billing, h.webhooks)
+	runner := scenarios.NewRunner(h.billing, h.webhooks, scenarioPayloads{h: h, r: r})
 	report, err := runner.Run(r.Context(), scenario)
 	status := http.StatusOK
 	if err != nil {
@@ -6837,19 +6815,41 @@ func personDataFromParams(p params) map[string]string {
 	return out
 }
 
-var accountSessionComponentPattern = regexp.MustCompile(`^components\[([^\]]+)\]\[enabled\]$`)
+var accountSessionComponentPattern = regexp.MustCompile(`^components\[([^\]]+)\]\[(enabled|features\]\[[^\]]+)\]$`)
+
+// accountSessionComponentFeatures lists every embedded component Stripe
+// returns on an account session with the feature flags it carries.
+var accountSessionComponentFeatures = map[string][]string{
+	"account_management":             {"disable_stripe_user_authentication", "external_account_collection"},
+	"account_onboarding":             {"disable_stripe_user_authentication", "external_account_collection"},
+	"balances":                       {"disable_stripe_user_authentication", "edit_payout_schedule", "external_account_collection", "instant_payouts", "standard_payouts"},
+	"disputes_list":                  {"capture_payments", "destination_on_behalf_of_charge_management", "dispute_management", "refund_management"},
+	"documents":                      {},
+	"financial_account":              {"disable_stripe_user_authentication", "external_account_collection", "send_money", "transfer_balance"},
+	"financial_account_transactions": {"card_spend_dispute_management"},
+	"instant_payouts_promotion":      {"disable_stripe_user_authentication", "external_account_collection", "instant_payouts"},
+	"issuing_card":                   {"card_management", "card_spend_dispute_management", "cardholder_management", "spend_control_management"},
+	"issuing_cards_list":             {"card_management", "card_spend_dispute_management", "cardholder_management", "disable_stripe_user_authentication", "spend_control_management"},
+	"notification_banner":            {"disable_stripe_user_authentication", "external_account_collection"},
+	"payment_details":                {"capture_payments", "destination_on_behalf_of_charge_management", "dispute_management", "refund_management"},
+	"payment_disputes":               {"destination_on_behalf_of_charge_management", "dispute_management", "refund_management"},
+	"payments":                       {"capture_payments", "destination_on_behalf_of_charge_management", "dispute_management", "refund_management"},
+	"payout_details":                 {},
+	"payouts":                        {"disable_stripe_user_authentication", "edit_payout_schedule", "external_account_collection", "instant_payouts", "standard_payouts"},
+	"payouts_list":                   {},
+	"tax_registrations":              {},
+	"tax_settings":                   {},
+}
 
 func accountSessionComponents(p params) map[string]any {
 	out := map[string]any{}
-	for key, value := range p.values {
-		matches := accountSessionComponentPattern.FindStringSubmatch(key)
-		if len(matches) != 2 {
-			continue
+	for component, featureNames := range accountSessionComponentFeatures {
+		prefix := "components[" + component + "]"
+		features := map[string]any{}
+		for _, feature := range featureNames {
+			features[feature] = p.boolDefault(prefix+"[features]["+feature+"]", feature == "external_account_collection")
 		}
-		out[matches[1]] = map[string]any{"enabled": value == "true" || value == "1"}
-	}
-	if len(out) == 0 {
-		return map[string]any{"account_onboarding": map[string]any{"enabled": true}}
+		out[component] = map[string]any{"enabled": p.boolDefault(prefix+"[enabled]", false), "features": features}
 	}
 	return out
 }
@@ -7489,11 +7489,13 @@ func stripeAccount(account billing.Account) map[string]any {
 		"requirements":        accountRequirements(account),
 		"future_requirements": accountRequirements(account),
 		"settings": map[string]any{
-			"dashboard": map[string]any{"display_name": nil, "timezone": "Etc/UTC"},
-			"payouts":   map[string]any{"schedule": map[string]any{"interval": "manual"}},
+			"branding":      map[string]any{"icon": nil, "logo": nil, "primary_color": nil, "secondary_color": nil},
+			"card_payments": map[string]any{"decline_on": map[string]any{"avs_failure": false, "cvc_failure": false}, "statement_descriptor_prefix": nil, "statement_descriptor_prefix_kana": nil, "statement_descriptor_prefix_kanji": nil},
+			"dashboard":     map[string]any{"display_name": nil, "timezone": "Etc/UTC"},
+			"payments":      map[string]any{"statement_descriptor": nil, "statement_descriptor_kana": nil, "statement_descriptor_kanji": nil},
+			"payouts":       map[string]any{"debit_negative_balances": false, "schedule": map[string]any{"delay_days": 2, "interval": "manual"}, "statement_descriptor": nil},
 		},
-		"created":  unix(account.CreatedAt),
-		"livemode": false,
+		"created": unix(account.CreatedAt),
 	}
 }
 
@@ -7534,20 +7536,24 @@ func stripeCapability(accountID string, capability string, status string) map[st
 		status = "inactive"
 	}
 	return map[string]any{
-		"id":        capability,
-		"object":    billing.ObjectCapability,
-		"account":   accountID,
-		"requested": status != "inactive",
-		"status":    status,
-		"livemode":  false,
-		"requirements": map[string]any{
-			"alternatives":         []map[string]any{},
-			"currently_due":        []string{},
-			"eventually_due":       []string{},
-			"past_due":             []string{},
-			"pending_verification": []string{},
-		},
+		"id":           capability,
+		"object":       billing.ObjectCapability,
+		"account":      accountID,
+		"requested":    status != "inactive",
+		"requirements": emptyRequirements(),
+		"status":       status,
 	}
+}
+
+func emptyPersonRequirements() map[string]any {
+	requirements := emptyRequirements()
+	delete(requirements, "current_deadline")
+	delete(requirements, "disabled_reason")
+	return requirements
+}
+
+func emptyVerificationDocument() map[string]any {
+	return map[string]any{"back": nil, "details": nil, "details_code": nil, "front": nil}
 }
 
 func stripeConnectResources(resources []billing.ConnectResource) []map[string]any {
@@ -7615,17 +7621,16 @@ func stripePerson(resource billing.ConnectResource) map[string]any {
 			"title":             emptyToNil(resource.Data["relationship[title]"]),
 			"percent_ownership": optionalIntString(resource.Data["relationship[percent_ownership]"]),
 		},
-		"requirements":        emptyRequirements(),
-		"future_requirements": emptyRequirements(),
+		"requirements":        emptyPersonRequirements(),
+		"future_requirements": emptyPersonRequirements(),
 		"verification": map[string]any{
 			"status":              "unverified",
-			"document":            nil,
-			"additional_document": nil,
+			"document":            emptyVerificationDocument(),
+			"additional_document": emptyVerificationDocument(),
 			"details":             nil,
 			"details_code":        nil,
 		},
 		"metadata": nonNilMap(resource.Metadata),
-		"livemode": false,
 	}
 }
 
@@ -7645,8 +7650,6 @@ func stripeExternalAccount(resource billing.ConnectResource) map[string]any {
 		"metadata":             nonNilMap(resource.Metadata),
 		"routing_number":       emptyToNil(resource.RoutingNumber),
 		"status":               stringDefault(resource.Status, "new"),
-		"created":              unix(resource.CreatedAt),
-		"livemode":             false,
 	}
 }
 
@@ -7658,6 +7661,7 @@ func stripeTransfer(resource billing.ConnectResource) map[string]any {
 		"amount":              resource.Amount,
 		"amount_reversed":     amountReversed,
 		"balance_transaction": "txn_" + resource.ID,
+		"reversals":           stripeList("/v1/transfers/"+resource.ID+"/reversals", []map[string]any{}),
 		"created":             unix(resource.CreatedAt),
 		"currency":            strings.ToLower(resource.Currency),
 		"description":         emptyToNil(resource.Description),
@@ -7719,12 +7723,12 @@ func stripeApplicationFee(resource billing.ConnectResource, refunds []billing.Co
 	return map[string]any{
 		"id":                      resource.ID,
 		"object":                  billing.ObjectApplicationFee,
-		"account":                 emptyToNil(resource.AccountID),
+		"account":                 resource.AccountID,
 		"amount":                  resource.Amount,
 		"amount_refunded":         amountRefunded,
 		"application":             "ca_emulator",
 		"balance_transaction":     "txn_" + resource.ID,
-		"charge":                  emptyToNil(resource.Data["charge"]),
+		"charge":                  resource.Data["charge"],
 		"created":                 unix(resource.CreatedAt),
 		"currency":                strings.ToLower(stringDefault(resource.Currency, "usd")),
 		"livemode":                false,
@@ -8033,9 +8037,9 @@ func (h *Handler) stripeSubscription(r *http.Request, sub billing.Subscription) 
 		"customer":             sub.CustomerID,
 		"status":               sub.Status,
 		"items":                stripeList("/v1/subscription_items?subscription="+sub.ID, items),
-		"current_period_start": unix(sub.CurrentPeriodStart),
-		"current_period_end":   unix(sub.CurrentPeriodEnd),
-		"start_date":           unix(sub.CurrentPeriodStart),
+		"billing_mode":         map[string]any{"flexible": nil, "type": "classic"},
+		"created":              unix(sub.CreatedAt),
+		"start_date":           unix(sub.CreatedAt),
 		"cancel_at_period_end": sub.CancelAtPeriodEnd,
 		"canceled_at":          optionalUnix(sub.CanceledAt),
 		"cancel_at":            subscriptionCancelAt(sub),
@@ -8043,8 +8047,8 @@ func (h *Handler) stripeSubscription(r *http.Request, sub billing.Subscription) 
 		"trial_start":          metadataUnix(sub.Metadata["trial_start"]),
 		"trial_end":            metadataUnix(sub.Metadata["trial_end"]),
 		"latest_invoice":       emptyToNil(sub.LatestInvoiceID),
-		"discount":             firstDiscountObject(h, discounts, sub.CustomerID, sub.ID, ""),
 		"discounts":            discountObjects(h, discounts, sub.CustomerID, sub.ID, ""),
+		"invoice_settings":     map[string]any{"account_tax_ids": nil, "issuer": map[string]any{"type": "self"}},
 		"test_clock":           emptyToNil(sub.Metadata[billing.MetadataTestClock]),
 		"metadata":             nonNilMap(sub.Metadata),
 		"collection_method":    stringDefault(sub.Metadata["collection_method"], "charge_automatically"),
@@ -8104,9 +8108,6 @@ func (h *Handler) stripeSubscriptionItem(r *http.Request, sub billing.Subscripti
 	var priceObject map[string]any
 	if err == nil {
 		priceObject = stripePrice(price)
-		if product, productErr := h.billing.GetProduct(r.Context(), price.ProductID); productErr == nil {
-			priceObject["product"] = stripeProduct(product)
-		}
 	} else {
 		priceObject = map[string]any{
 			"id":                  item.PriceID,
@@ -8129,6 +8130,7 @@ func (h *Handler) stripeSubscriptionItem(r *http.Request, sub billing.Subscripti
 		"created":              unix(sub.CurrentPeriodStart),
 		"current_period_start": unix(sub.CurrentPeriodStart),
 		"current_period_end":   unix(sub.CurrentPeriodEnd),
+		"discounts":            []any{},
 		"metadata":             map[string]string{},
 	}
 }
@@ -8212,7 +8214,7 @@ func invoiceTaxBreakdown(base int64, rates []billing.AppliedTaxRate) (pretax, ta
 			"amount":            entry.Amount,
 			"tax_behavior":      behavior,
 			"tax_rate_details":  map[string]any{"tax_rate": entry.Rate.ID},
-			"taxability_reason": nil,
+			"taxability_reason": "not_available",
 			"taxable_amount":    pretax,
 			"type":              "tax_rate_details",
 		})
@@ -8517,24 +8519,19 @@ func stripeInvoicePaymentRecords(invoice billing.Invoice, intent *billing.Paymen
 	if intent != nil && intent.ID != "" {
 		status = invoicePaymentRecordStatus(invoice, intent.Status)
 	}
-	payment := map[string]any{
-		"id":             "py_" + sanitizeID(invoice.PaymentIntentID),
-		"object":         "payment",
-		"type":           "payment_intent",
-		"payment_intent": paymentIntent,
-		"status":         status,
-	}
 	return []map[string]any{{
-		"id":               "inpay_" + sanitizeID(invoice.ID),
-		"object":           "invoice_payment",
-		"amount_requested": invoice.Total,
-		"amount_paid":      invoice.AmountPaid,
-		"currency":         invoice.Currency,
-		"invoice":          invoice.ID,
-		"is_default":       true,
-		"payment":          payment,
-		"payment_intent":   paymentIntent,
-		"status":           status,
+		"id":                 "inpay_" + sanitizeID(invoice.ID),
+		"object":             "invoice_payment",
+		"amount_paid":        invoice.AmountPaid,
+		"amount_requested":   invoice.Total,
+		"created":            unix(invoice.CreatedAt),
+		"currency":           invoice.Currency,
+		"invoice":            invoice.ID,
+		"is_default":         true,
+		"livemode":           false,
+		"payment":            map[string]any{"type": "payment_intent", "payment_intent": paymentIntent},
+		"status":             status,
+		"status_transitions": map[string]any{"canceled_at": nil, "paid_at": optionalPaidAt(invoice)},
 	}}
 }
 
@@ -8666,8 +8663,12 @@ func paymentSettingsCustomerBalance(meta map[string]string) any {
 		if !strings.HasPrefix(key, prefix+"[") {
 			continue
 		}
+		path := parseBracketPath(strings.TrimPrefix(key, prefix))
+		if slices.Contains(path, "requested_address_types") {
+			continue
+		}
 		found = true
-		mergeBracketValue(root, parseBracketPath(strings.TrimPrefix(key, prefix)), value)
+		mergeBracketValue(root, path, value)
 	}
 	if !found {
 		return nil
@@ -8732,7 +8733,6 @@ func stripePaymentIntent(intent billing.PaymentIntent) map[string]any {
 		"id":                 intent.ID,
 		"object":             billing.ObjectPaymentIntent,
 		"customer":           emptyToNil(intent.CustomerID),
-		"invoice":            emptyToNil(intent.InvoiceID),
 		"amount":             intent.Amount,
 		"amount_capturable":  paymentIntentCapturableAmount(intent),
 		"amount_received":    paymentIntentReceivedAmount(intent),
@@ -8749,7 +8749,6 @@ func stripePaymentIntent(intent billing.PaymentIntent) map[string]any {
 		"next_action":        paymentIntentNextAction(intent),
 		"client_secret":      intent.ID + "_secret_emulator",
 		"created":            unix(intent.CreatedAt),
-		"created_at":         intent.CreatedAt,
 		"livemode":           false,
 	}
 }
@@ -8784,29 +8783,31 @@ func paymentIntentNextAction(intent billing.PaymentIntent) any {
 
 func stripeSetupIntent(intent billing.SetupIntent) map[string]any {
 	return map[string]any{
-		"id":               intent.ID,
-		"object":           billing.ObjectSetupIntent,
-		"customer":         emptyToNil(intent.CustomerID),
-		"status":           intent.Status,
-		"usage":            stringDefault(intent.Usage, "off_session"),
-		"payment_method":   emptyToNil(intent.PaymentMethodID),
-		"last_setup_error": setupIntentError(intent),
-		"client_secret":    intent.ID + "_secret_emulator",
-		"created":          unix(intent.CreatedAt),
-		"created_at":       intent.CreatedAt,
-		"livemode":         false,
+		"id":                   intent.ID,
+		"object":               billing.ObjectSetupIntent,
+		"customer":             emptyToNil(intent.CustomerID),
+		"status":               intent.Status,
+		"usage":                stringDefault(intent.Usage, "off_session"),
+		"payment_method":       emptyToNil(intent.PaymentMethodID),
+		"last_setup_error":     setupIntentError(intent),
+		"client_secret":        intent.ID + "_secret_emulator",
+		"created":              unix(intent.CreatedAt),
+		"livemode":             false,
+		"payment_method_types": []string{"card"},
 	}
 }
 
 func stripeTestClock(clock billing.TestClock) map[string]any {
 	return map[string]any{
-		"id":          clock.ID,
-		"object":      billing.ObjectTestClock,
-		"name":        clock.Name,
-		"status":      clock.Status,
-		"frozen_time": unix(clock.FrozenTime),
-		"created":     unix(clock.CreatedAt),
-		"livemode":    false,
+		"id":             clock.ID,
+		"object":         billing.ObjectTestClock,
+		"created":        unix(clock.CreatedAt),
+		"deletes_after":  clock.CreatedAt.Add(30 * 24 * time.Hour).Unix(),
+		"frozen_time":    unix(clock.FrozenTime),
+		"livemode":       false,
+		"name":           emptyToNil(clock.Name),
+		"status":         clock.Status,
+		"status_details": map[string]any{},
 	}
 }
 
@@ -8818,13 +8819,10 @@ func stripeRefund(refund billing.Refund) map[string]any {
 		"currency":       refund.Currency,
 		"charge":         emptyToNil(refund.ChargeID),
 		"payment_intent": emptyToNil(refund.PaymentIntentID),
-		"invoice":        emptyToNil(refund.InvoiceID),
-		"customer":       emptyToNil(refund.CustomerID),
 		"reason":         emptyToNil(refund.Reason),
 		"status":         refund.Status,
 		"metadata":       nonNilMap(refund.Metadata),
 		"created":        unix(refund.CreatedAt),
-		"livemode":       false,
 	}
 }
 
@@ -8838,8 +8836,43 @@ func paymentIntentChargeID(intent billing.PaymentIntent) string {
 	return ""
 }
 
-// handleCharge serves GET /v1/charges/{id} for PaymentIntent charges, with the
-// balance_transaction always expanded (Emulator pre-expands instead of honoring expand[]).
+func stripeBalanceTransaction(intent billing.PaymentIntent) map[string]any {
+	amountCaptured := int64(0)
+	if intent.Status == "succeeded" {
+		amountCaptured = intent.Amount
+	}
+	// ponytail: fixed simulated 2.9% + 30 fee; make it configurable if a test asserts real pricing.
+	fee := intent.Amount*29/1000 + 30
+	return map[string]any{
+		"id":                 "txn_" + intent.ID,
+		"object":             "balance_transaction",
+		"amount":             amountCaptured,
+		"available_on":       unix(intent.CreatedAt),
+		"created":            unix(intent.CreatedAt),
+		"currency":           intent.Currency,
+		"description":        nil,
+		"exchange_rate":      nil,
+		"fee":                fee,
+		"fee_details":        []map[string]any{{"amount": fee, "application": nil, "currency": intent.Currency, "description": "Stripe processing fees", "type": "stripe_fee"}},
+		"net":                amountCaptured - fee,
+		"reporting_category": "charge",
+		"source":             paymentIntentChargeID(intent),
+		"status":             "available",
+		"type":               "charge",
+	}
+}
+
+func stripeBillingDetails() map[string]any {
+	return map[string]any{
+		"address": map[string]any{"city": nil, "country": nil, "line1": nil, "line2": nil, "postal_code": nil, "state": nil},
+		"email":   nil,
+		"name":    nil,
+		"phone":   nil,
+		"tax_id":  nil,
+	}
+}
+
+// handleCharge serves GET /v1/charges/{id} for PaymentIntent charges.
 func (h *Handler) handleCharge(w http.ResponseWriter, r *http.Request, chargeID string) {
 	if r.Method != http.MethodGet {
 		h.methodNotAllowed(w, r, "GET")
@@ -8864,38 +8897,27 @@ func (h *Handler) handleCharge(w http.ResponseWriter, r *http.Request, chargeID 
 	if captured {
 		amountCaptured = intent.Amount
 	}
-	// ponytail: fixed simulated 2.9% + 30 fee; make it configurable if a test asserts real pricing.
-	fee := intent.Amount*29/1000 + 30
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":              chargeID,
-		"object":          "charge",
-		"amount":          intent.Amount,
-		"amount_captured": amountCaptured,
-		"amount_refunded": refunded,
-		"balance_transaction": map[string]any{
-			"id":       "txn_" + intent.ID,
-			"object":   "balance_transaction",
-			"amount":   amountCaptured,
-			"fee":      fee,
-			"net":      amountCaptured - fee,
-			"currency": intent.Currency,
-			"source":   chargeID,
-			"status":   "available",
-			"type":     "charge",
-			"created":  unix(intent.CreatedAt),
-		},
-		"captured":       captured,
-		"currency":       intent.Currency,
-		"customer":       emptyToNil(intent.CustomerID),
-		"payment_intent": intent.ID,
-		"payment_method": emptyToNil(intent.PaymentMethodID),
-		"paid":           true,
-		"refunded":       refunded > 0 && refunded >= intent.Amount,
-		"refunds":        stripeList("/v1/refunds?charge="+url.QueryEscape(chargeID), refundData),
-		"status":         "succeeded",
-		"metadata":       nonNilMap(intent.Metadata),
-		"created":        unix(intent.CreatedAt),
-		"livemode":       false,
+		"id":                  chargeID,
+		"object":              "charge",
+		"amount":              intent.Amount,
+		"amount_captured":     amountCaptured,
+		"amount_refunded":     refunded,
+		"balance_transaction": "txn_" + intent.ID,
+		"billing_details":     stripeBillingDetails(),
+		"captured":            captured,
+		"created":             unix(intent.CreatedAt),
+		"currency":            intent.Currency,
+		"customer":            emptyToNil(intent.CustomerID),
+		"disputed":            false,
+		"livemode":            false,
+		"metadata":            nonNilMap(intent.Metadata),
+		"paid":                true,
+		"payment_intent":      intent.ID,
+		"payment_method":      emptyToNil(intent.PaymentMethodID),
+		"refunded":            refunded > 0 && refunded >= intent.Amount,
+		"refunds":             stripeList("/v1/refunds?charge="+url.QueryEscape(chargeID), refundData),
+		"status":              "succeeded",
 	})
 }
 
@@ -8905,13 +8927,17 @@ func stripeChargeFromRefund(refund billing.Refund) map[string]any {
 		"id":              refund.ChargeID,
 		"object":          "charge",
 		"amount":          refund.Amount,
+		"amount_captured": refund.Amount,
 		"amount_refunded": refunded,
+		"billing_details": stripeBillingDetails(),
+		"captured":        true,
 		"currency":        refund.Currency,
 		"customer":        emptyToNil(refund.CustomerID),
-		"invoice":         emptyToNil(refund.InvoiceID),
+		"disputed":        false,
 		"payment_intent":  emptyToNil(refund.PaymentIntentID),
 		"paid":            true,
 		"refunded":        true,
+		"status":          "succeeded",
 		"refunds": stripeList("/v1/refunds?charge="+url.QueryEscape(refund.ChargeID), []map[string]any{
 			stripeRefund(refund),
 		}),
@@ -8921,24 +8947,48 @@ func stripeChargeFromRefund(refund billing.Refund) map[string]any {
 	}
 }
 
-func stripeCreditNote(note billing.CreditNote) map[string]any {
+func (h *Handler) stripeCreditNote(ctx context.Context, note billing.CreditNote) map[string]any {
+	noteType, prePaymentAmount, postPaymentAmount := "pre_payment", note.Amount, int64(0)
+	if invoice, err := h.billing.GetInvoice(ctx, note.InvoiceID); err == nil && invoice.Status == "paid" {
+		noteType, prePaymentAmount, postPaymentAmount = "post_payment", 0, note.Amount
+	}
 	return map[string]any{
-		"id":                 note.ID,
-		"object":             billing.ObjectCreditNote,
-		"invoice":            note.InvoiceID,
-		"customer":           emptyToNil(note.CustomerID),
-		"amount":             note.Amount,
-		"currency":           note.Currency,
-		"reason":             emptyToNil(note.Reason),
-		"status":             note.Status,
-		"memo":               emptyToNil(note.Memo),
-		"out_of_band_amount": note.OutOfBandAmount,
-		"refund_amount":      note.RefundAmount,
-		"credit_amount":      note.CreditAmount(),
-		"metadata":           nonNilMap(note.Metadata),
-		"created":            unix(note.CreatedAt),
-		"livemode":           false,
-		"lines":              stripeList("/v1/credit_notes/"+note.ID+"/lines", []map[string]any{}),
+		"id":                           note.ID,
+		"object":                       billing.ObjectCreditNote,
+		"amount":                       note.Amount,
+		"amount_shipping":              0,
+		"created":                      unix(note.CreatedAt),
+		"currency":                     note.Currency,
+		"customer":                     note.CustomerID,
+		"customer_account":             nil,
+		"customer_balance_transaction": nil,
+		"discount_amount":              0,
+		"discount_amounts":             []any{},
+		"effective_at":                 unix(note.CreatedAt),
+		"emulator_credit_amount":       note.CreditAmount(),
+		"emulator_refund_amount":       note.RefundAmount,
+		"invoice":                      note.InvoiceID,
+		"lines":                        stripeList("/v1/credit_notes/"+note.ID+"/lines", []map[string]any{}),
+		"livemode":                     false,
+		"memo":                         emptyToNil(note.Memo),
+		"metadata":                     nonNilMap(note.Metadata),
+		"number":                       strings.ToUpper(strings.TrimPrefix(note.ID, "cn_")),
+		"out_of_band_amount":           note.OutOfBandAmount,
+		"pdf":                          "/credit_notes/" + note.ID + ".pdf",
+		"post_payment_amount":          postPaymentAmount,
+		"pre_payment_amount":           prePaymentAmount,
+		"pretax_credit_amounts":        []any{},
+		"reason":                       emptyToNil(note.Reason),
+		"refunds":                      []any{},
+		"shipping_cost":                nil,
+		"status":                       note.Status,
+		"subtotal":                     note.Amount,
+		"subtotal_excluding_tax":       note.Amount,
+		"total":                        note.Amount,
+		"total_excluding_tax":          note.Amount,
+		"total_taxes":                  []any{},
+		"type":                         noteType,
+		"voided_at":                    nil,
 	}
 }
 
@@ -9983,10 +10033,10 @@ func (h *Handler) emitCheckoutWebhooks(r *http.Request, result map[string]any) [
 	var emitted []webhooks.Event
 	for idx, item := range h.checkoutWebhookPayloads(r, result) {
 		event, _, err := h.webhooks.CreateEvent(ctx, webhooks.EventInput{
-			Type:           item.eventType,
-			ObjectPayload:  item.payload,
-			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
+			Type:           item.EventType,
+			ObjectPayload:  item.Payload,
+			RequestID:      "req_" + item.ObjectID,
+			IdempotencyKey: "emulator:" + item.EventType + ":" + item.ObjectID,
 			Source:         webhooks.SourceCheckout,
 			Sequence:       sequence + int64(idx),
 			AsyncDelivery:  true,
@@ -10054,10 +10104,10 @@ func (h *Handler) emitInvoicePaymentWebhooks(r *http.Request, result billing.Inv
 	var emitted []webhooks.Event
 	for idx, item := range h.invoicePaymentWebhookPayloads(r, result) {
 		event, _, err := h.webhooks.CreateEvent(r.Context(), webhooks.EventInput{
-			Type:           item.eventType,
-			ObjectPayload:  item.payload,
-			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", item.eventType, item.objectID, sequence),
+			Type:           item.EventType,
+			ObjectPayload:  item.Payload,
+			RequestID:      "req_" + item.ObjectID,
+			IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", item.EventType, item.ObjectID, sequence),
 			Source:         source,
 			Sequence:       sequence + int64(idx),
 			AsyncDelivery:  true,
@@ -10077,10 +10127,10 @@ func (h *Handler) emitRenewalWebhooks(r *http.Request, result billing.InvoicePay
 	var emitted []webhooks.Event
 	for idx, item := range h.renewalWebhookPayloads(r, result) {
 		event, _, err := h.webhooks.CreateEvent(r.Context(), webhooks.EventInput{
-			Type:           item.eventType,
-			ObjectPayload:  item.payload,
-			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", item.eventType, item.objectID, sequence),
+			Type:           item.EventType,
+			ObjectPayload:  item.Payload,
+			RequestID:      "req_" + item.ObjectID,
+			IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", item.EventType, item.ObjectID, sequence),
 			Source:         source,
 			Sequence:       sequence + int64(idx),
 			AsyncDelivery:  true,
@@ -10168,9 +10218,9 @@ func (h *Handler) emitFixtureApplyWebhooks(r *http.Request, result fixtures.Appl
 		emitted = append(emitted, h.emitRefundWebhooks(r, refund, webhooks.SourceAPI)...)
 	}
 	for _, note := range result.CreditNotes {
-		emitted = append(emitted, h.emitGenericWebhook(r, "credit_note.created", note.ID, stripeCreditNote(note), webhooks.SourceAPI)...)
+		emitted = append(emitted, h.emitGenericWebhook(r, "credit_note.created", note.ID, h.stripeCreditNote(r.Context(), note), webhooks.SourceAPI)...)
 		if note.Status == "void" {
-			emitted = append(emitted, h.emitGenericWebhook(r, "credit_note.voided", note.ID, stripeCreditNote(note), webhooks.SourceAPI)...)
+			emitted = append(emitted, h.emitGenericWebhook(r, "credit_note.voided", note.ID, h.stripeCreditNote(r.Context(), note), webhooks.SourceAPI)...)
 		}
 	}
 	return emitted
@@ -10308,6 +10358,40 @@ func (h *Handler) deliveryAttemptResponses(r *http.Request, attempts []webhooks.
 	return out
 }
 
+func stripeWebhookEndpoint(endpoint webhooks.Endpoint) map[string]any {
+	status := "enabled"
+	if !endpoint.Active {
+		status = "disabled"
+	}
+	out := map[string]any{
+		"id":                          endpoint.ID,
+		"object":                      "webhook_endpoint",
+		"api_version":                 nil,
+		"application":                 nil,
+		"created":                     unix(endpoint.CreatedAt),
+		"description":                 nil,
+		"emulator_retry_backoff":      endpoint.RetryBackoff,
+		"emulator_retry_max_attempts": endpoint.RetryMaxAttempts,
+		"enabled_events":              endpoint.EnabledEvents,
+		"livemode":                    false,
+		"metadata":                    map[string]string{},
+		"status":                      status,
+		"url":                         endpoint.URL,
+	}
+	if endpoint.Secret != "" {
+		out["secret"] = security.MaskSecret(endpoint.Secret)
+	}
+	return out
+}
+
+func stripeWebhookEndpoints(endpoints []webhooks.Endpoint) []map[string]any {
+	out := make([]map[string]any, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		out = append(out, stripeWebhookEndpoint(endpoint))
+	}
+	return out
+}
+
 func maskEndpoint(endpoint webhooks.Endpoint) webhooks.Endpoint {
 	if endpoint.Secret != "" {
 		endpoint.Secret = security.MaskSecret(endpoint.Secret)
@@ -10396,23 +10480,54 @@ func (h *Handler) collectObjects(r *http.Request) (map[string]any, error) {
 	return result, nil
 }
 
-type webhookPayload struct {
-	eventType string
-	objectID  string
-	payload   json.RawMessage
+// scenarioPayloads renders scenario webhooks with the handler's Stripe
+// serializers; r supplies the public base for hosted URLs.
+type scenarioPayloads struct {
+	h *Handler
+	r *http.Request
 }
 
-func (h *Handler) checkoutWebhookPayloads(r *http.Request, result map[string]any) []webhookPayload {
+// ScenarioPayloads renders scenario webhooks for runs outside an API request,
+// such as the scenario CLI.
+func ScenarioPayloads(opts Options) scenarios.StripePayloads {
+	r, err := http.NewRequest(http.MethodPost, "/", nil)
+	if err != nil {
+		panic(err)
+	}
+	return scenarioPayloads{h: newHandler(opts), r: r}
+}
+
+func (p scenarioPayloads) Checkout(ctx context.Context, result map[string]any) []scenarios.WebhookPayload {
+	return p.h.checkoutWebhookPayloads(p.r.WithContext(ctx), result)
+}
+
+func (p scenarioPayloads) InvoicePayment(ctx context.Context, result billing.InvoicePaymentResult) []scenarios.WebhookPayload {
+	return p.h.invoicePaymentWebhookPayloads(p.r.WithContext(ctx), result)
+}
+
+func (p scenarioPayloads) Renewal(ctx context.Context, result billing.InvoicePaymentResult) []scenarios.WebhookPayload {
+	return p.h.renewalWebhookPayloads(p.r.WithContext(ctx), result)
+}
+
+func (p scenarioPayloads) Subscription(ctx context.Context, subscription billing.Subscription) json.RawMessage {
+	raw, err := json.Marshal(p.h.stripeSubscription(p.r.WithContext(ctx), subscription))
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+func (h *Handler) checkoutWebhookPayloads(r *http.Request, result map[string]any) []scenarios.WebhookPayload {
 	session, _ := result["session"].(billing.CheckoutSession)
 	subscription, _ := result["subscription"].(billing.Subscription)
 	invoice, _ := result["invoice"].(billing.Invoice)
 	paymentIntent, _ := result["payment_intent"].(billing.PaymentIntent)
 
-	var out []webhookPayload
+	var out []scenarios.WebhookPayload
 	appendPayload := func(eventType string, objectID string, value any) {
 		raw, err := json.Marshal(value)
 		if err == nil {
-			out = append(out, webhookPayload{eventType: eventType, objectID: objectID, payload: raw})
+			out = append(out, scenarios.WebhookPayload{EventType: eventType, ObjectID: objectID, Payload: raw})
 		}
 	}
 	appendPayload(checkoutSessionEvent(session.Status), session.ID, h.stripeCheckoutSession(r, session))
@@ -10443,15 +10558,15 @@ func (h *Handler) checkoutWebhookPayloads(r *http.Request, result map[string]any
 	return out
 }
 
-func (h *Handler) invoicePaymentWebhookPayloads(r *http.Request, result billing.InvoicePaymentResult) []webhookPayload {
-	var out []webhookPayload
+func (h *Handler) invoicePaymentWebhookPayloads(r *http.Request, result billing.InvoicePaymentResult) []scenarios.WebhookPayload {
+	var out []scenarios.WebhookPayload
 	appendPayload := func(eventType string, objectID string, value any) {
 		if eventType == "" || objectID == "" {
 			return
 		}
 		raw, err := json.Marshal(value)
 		if err == nil {
-			out = append(out, webhookPayload{eventType: eventType, objectID: objectID, payload: raw})
+			out = append(out, scenarios.WebhookPayload{EventType: eventType, ObjectID: objectID, Payload: raw})
 		}
 	}
 	if result.PaymentIntent.ID != "" {
@@ -10468,15 +10583,15 @@ func (h *Handler) invoicePaymentWebhookPayloads(r *http.Request, result billing.
 	return out
 }
 
-func (h *Handler) renewalWebhookPayloads(r *http.Request, result billing.InvoicePaymentResult) []webhookPayload {
-	var out []webhookPayload
+func (h *Handler) renewalWebhookPayloads(r *http.Request, result billing.InvoicePaymentResult) []scenarios.WebhookPayload {
+	var out []scenarios.WebhookPayload
 	appendPayload := func(eventType string, objectID string, value any) {
 		if eventType == "" || objectID == "" {
 			return
 		}
 		raw, err := json.Marshal(value)
 		if err == nil {
-			out = append(out, webhookPayload{eventType: eventType, objectID: objectID, payload: raw})
+			out = append(out, scenarios.WebhookPayload{EventType: eventType, ObjectID: objectID, Payload: raw})
 		}
 	}
 	if result.Invoice.ID != "" {

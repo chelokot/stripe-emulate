@@ -134,6 +134,7 @@ func (s *localEvidenceStore) addCash(customerID string, amount int64, tx map[str
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cashBalances[customerID] += amount
+	tx["ending_balance"] = s.cashBalances[customerID]
 	s.cashTxs[customerID] = append(s.cashTxs[customerID], tx)
 	if s.repo == nil {
 		return nil
@@ -300,17 +301,7 @@ func (h *Handler) handlePromotionCodes(w http.ResponseWriter, r *http.Request) {
 			writeResult(w, nil, billing.ErrNotFound)
 			return
 		}
-		promo := map[string]any{
-			"id":       id,
-			"object":   "promotion_code",
-			"code":     code,
-			"coupon":   cloneEvidence(coupon),
-			"active":   p.boolDefault("active", true),
-			"customer": emptyToNil(p.string("customer")),
-			"metadata": nonNilMap(p.metadata()),
-			"created":  now.Unix(),
-			"livemode": false,
-		}
+		promo := promotionCodeEvidence(id, code, coupon, p.boolDefault("active", true), p.string("customer"), p.metadata(), now)
 		if err := h.local.save(kindPromotionCode, id, promo); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
@@ -348,8 +339,29 @@ func (h *Handler) handlePromotionCode(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func evidenceCouponRef(id string) map[string]any {
-	return map[string]any{"id": id, "object": "coupon"}
+func promotionCodeEvidence(id string, code string, coupon map[string]any, active bool, customerID string, metadata map[string]string, now time.Time) map[string]any {
+	return map[string]any{
+		"id":               id,
+		"object":           "promotion_code",
+		"active":           active,
+		"code":             code,
+		"created":          now.Unix(),
+		"customer":         emptyToNil(customerID),
+		"customer_account": nil,
+		"expires_at":       nil,
+		"livemode":         false,
+		"max_redemptions":  nil,
+		"metadata":         nonNilMap(metadata),
+		"promotion":        map[string]any{"type": "coupon", "coupon": coupon["id"]},
+		"restrictions":     map[string]any{"first_time_transaction": false, "minimum_amount": nil, "minimum_amount_currency": nil},
+		"times_redeemed":   int64(0),
+	}
+}
+
+func promotionCouponID(promo map[string]any) string {
+	promotion, _ := promo["promotion"].(map[string]any)
+	couponID, _ := promotion["coupon"].(string)
+	return couponID
 }
 
 func (h *Handler) handleTaxRates(w http.ResponseWriter, r *http.Request) {
@@ -567,11 +579,8 @@ func filterPromotionCodeEvidence(data []map[string]any, r *http.Request) []map[s
 		if code != "" && !strings.EqualFold(fmt.Sprint(promo["code"]), code) {
 			continue
 		}
-		if couponID != "" {
-			coupon, _ := promo["coupon"].(map[string]any)
-			if fmt.Sprint(coupon["id"]) != couponID {
-				continue
-			}
+		if couponID != "" && promotionCouponID(promo) != couponID {
+			continue
 		}
 		if customerID != "" && fmt.Sprint(promo["customer"]) != customerID {
 			continue
@@ -617,7 +626,8 @@ func (h *Handler) handleSubscriptionSchedules(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusBadRequest, missingParam("phases[0][items][0][price]"))
 			return
 		}
-		if err := validatePriceExists(h.billing.GetPrice(r.Context(), priceID)); err != nil {
+		price, err := h.billing.GetPrice(r.Context(), priceID)
+		if err := validatePriceExists(price, err); err != nil {
 			writeResult(w, nil, err)
 			return
 		}
@@ -626,24 +636,48 @@ func (h *Handler) handleSubscriptionSchedules(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusBadRequest, invalidParam("phases[0][items][0][quantity]", "Must be at least 1."))
 			return
 		}
+		start := time.Unix(startDate, 0).UTC()
+		endDate := start.AddDate(0, 1, 0).Unix()
+		if price.RecurringInterval == "year" {
+			endDate = start.AddDate(1, 0, 0).Unix()
+		}
 		schedule := map[string]any{
-			"id":           id,
-			"object":       "subscription_schedule",
-			"customer":     subscription.CustomerID,
-			"subscription": subscription.ID,
-			"status":       "active",
-			"start_date":   startDate,
+			"id":            id,
+			"object":        "subscription_schedule",
+			"billing_mode":  map[string]any{"flexible": nil, "type": "classic"},
+			"canceled_at":   nil,
+			"completed_at":  nil,
+			"created":       now.Unix(),
+			"current_phase": nil,
+			"customer":      subscription.CustomerID,
+			"default_settings": map[string]any{
+				"automatic_tax":        map[string]any{"disabled_reason": nil, "enabled": false, "liability": nil},
+				"billing_cycle_anchor": "automatic",
+				"invoice_settings":     map[string]any{"account_tax_ids": nil, "days_until_due": nil, "issuer": map[string]any{"type": "self"}},
+			},
 			"end_behavior": p.stringDefault("end_behavior", "release"),
+			"livemode":     false,
+			"metadata":     nonNilMap(p.metadata()),
 			"phases": []map[string]any{{
-				"start_date": startDate,
+				"add_invoice_items": []any{},
+				"currency":          price.Currency,
+				"discounts":         []any{},
+				"end_date":          endDate,
 				"items": []map[string]any{{
-					"price":    priceID,
-					"quantity": quantity,
+					"discounts": []any{},
+					"metadata":  map[string]string{},
+					"price":     priceID,
+					"quantity":  quantity,
 				}},
+				"metadata":           map[string]string{},
+				"proration_behavior": "create_prorations",
+				"start_date":         startDate,
 			}},
-			"metadata": nonNilMap(p.metadata()),
-			"created":  now.Unix(),
-			"livemode": false,
+			"released_at":           nil,
+			"released_subscription": nil,
+			"status":                "active",
+			"subscription":          subscription.ID,
+			"test_clock":            nil,
 		}
 		if err := h.local.save(kindSchedule, id, schedule); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
@@ -712,7 +746,11 @@ func (h *Handler) applyDueSubscriptionSchedules(r *http.Request, clockID string,
 		if schedule["status"] != "active" {
 			continue
 		}
-		startDate, _ := asInt64Evidence(schedule["start_date"])
+		phases, _ := schedule["phases"].([]map[string]any)
+		startDate := int64(0)
+		if len(phases) > 0 {
+			startDate, _ = asInt64Evidence(phases[0]["start_date"])
+		}
 		if startDate == 0 || startDate > at.Unix() {
 			continue
 		}
@@ -790,10 +828,12 @@ func (h *Handler) handleCustomerCashBalance(w http.ResponseWriter, r *http.Reque
 	available := h.local.cashBalances[customerID]
 	h.local.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"object":    "cash_balance",
-		"customer":  customerID,
-		"available": map[string]int64{"usd": available},
-		"livemode":  false,
+		"object":           "cash_balance",
+		"available":        map[string]int64{"usd": available},
+		"customer":         customerID,
+		"customer_account": nil,
+		"livemode":         false,
+		"settings":         map[string]any{"reconciliation_mode": "automatic", "using_merchant_default": true},
 	})
 }
 
@@ -845,14 +885,15 @@ func (h *Handler) handleTestHelperCustomer(w http.ResponseWriter, r *http.Reques
 	amount := p.int64("amount")
 	now := time.Now().UTC()
 	tx := map[string]any{
-		"id":         "ccsbtxn_" + strconv.FormatInt(now.UnixNano(), 36),
-		"object":     "customer_cash_balance_transaction",
-		"customer":   customerID,
-		"type":       "funded",
-		"net_amount": amount,
-		"currency":   strings.ToLower(p.stringDefault("currency", "usd")),
-		"created":    now.Unix(),
-		"livemode":   false,
+		"id":               "ccsbtxn_" + strconv.FormatInt(now.UnixNano(), 36),
+		"object":           "customer_cash_balance_transaction",
+		"customer":         customerID,
+		"customer_account": nil,
+		"type":             "funded",
+		"net_amount":       amount,
+		"currency":         strings.ToLower(p.stringDefault("currency", "usd")),
+		"created":          now.Unix(),
+		"livemode":         false,
 	}
 	if err := h.local.addCash(customerID, amount, tx); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -977,11 +1018,9 @@ func (h *Handler) handleDispute(w http.ResponseWriter, r *http.Request) {
 				dispute["metadata"] = nonNilMap(metadata)
 			}
 			dispute["evidence"] = evidence
-			dispute["evidence_details"] = map[string]any{
-				"has_evidence":     len(evidence) > 0,
-				"submission_count": 1,
-				"past_due":         false,
-			}
+			details, _ := dispute["evidence_details"].(map[string]any)
+			details["has_evidence"] = len(evidence) > 1
+			details["submission_count"] = 1
 			if err := h.local.save(kindDispute, id, dispute); err != nil {
 				writeError(w, http.StatusInternalServerError, err)
 				return
@@ -995,8 +1034,7 @@ func (h *Handler) handleDispute(w http.ResponseWriter, r *http.Request) {
 		h.notFound(w, r)
 		return
 	}
-	dispute["status"] = "won"
-	dispute["closed_at"] = time.Now().UTC().Unix()
+	dispute["status"] = "lost"
 	if err := h.local.save(kindDispute, id, dispute); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -1013,21 +1051,32 @@ func (h *Handler) createDispute(r *http.Request, chargeID string, amount int64, 
 	if amount <= 0 {
 		amount = 1000
 	}
-	dispute := map[string]any{
-		"id":       "dp_" + strconv.FormatInt(now.UnixNano(), 36),
-		"object":   "dispute",
-		"charge":   chargeID,
-		"amount":   amount,
-		"currency": "usd",
-		"reason":   reason,
-		"status":   "needs_response",
-		"created":  now.Unix(),
-		"livemode": false,
-	}
+	dispute := disputeEvidence("dp_"+strconv.FormatInt(now.UnixNano(), 36), chargeID, amount, "usd", reason, "needs_response", nil, now)
 	// Best effort: the caller returns the dispute, not an error.
 	_ = h.local.save(kindDispute, fmt.Sprint(dispute["id"]), dispute)
 	h.emitGenericWebhook(r, "charge.dispute.created", chargeID, dispute, webhooks.SourceAPI)
 	return cloneEvidence(dispute)
+}
+
+func disputeEvidence(id string, chargeID string, amount int64, currency string, reason string, status string, metadata map[string]string, now time.Time) map[string]any {
+	return map[string]any{
+		"id":                         id,
+		"object":                     "dispute",
+		"amount":                     amount,
+		"balance_transactions":       []map[string]any{},
+		"charge":                     chargeID,
+		"created":                    now.Unix(),
+		"currency":                   currency,
+		"enhanced_eligibility_types": []string{},
+		"evidence":                   map[string]any{"enhanced_evidence": map[string]any{}},
+		"evidence_details":           map[string]any{"due_by": nil, "enhanced_eligibility": map[string]any{}, "has_evidence": false, "past_due": false, "submission_count": 0},
+		"is_charge_refundable":       true,
+		"livemode":                   false,
+		"metadata":                   nonNilMap(metadata),
+		"payment_intent":             nil,
+		"reason":                     reason,
+		"status":                     status,
+	}
 }
 
 func evidenceList(items map[string]map[string]any) []map[string]any {

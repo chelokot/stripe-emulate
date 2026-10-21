@@ -28,13 +28,15 @@ func defaultPortalFeatures() map[string]any {
 		"subscription_cancel": map[string]any{
 			"enabled":             true,
 			"mode":                "at_period_end",
-			"cancellation_reason": nil,
-			"proration_behavior":  nil,
+			"cancellation_reason": map[string]any{"enabled": false, "options": []string{}},
+			"proration_behavior":  "none",
 		},
 		"subscription_update": map[string]any{
 			"enabled":                 true,
 			"proration_behavior":      "none",
 			"default_allowed_updates": []string{"price", "quantity"},
+			"schedule_at_period_end":  map[string]any{"conditions": []any{}},
+			"trial_update_behavior":   "end_trial",
 		},
 	}
 }
@@ -70,11 +72,14 @@ func portalFeaturesFromParams(p params, features map[string]any) map[string]any 
 	if p.has("features[subscription_cancel][mode]") {
 		cancel["mode"] = p.string("features[subscription_cancel][mode]")
 	}
-	if p.has("features[subscription_cancel][cancellation_reason]") {
-		cancel["cancellation_reason"] = emptyToNil(p.string("features[subscription_cancel][cancellation_reason]"))
+	if p.has("features[subscription_cancel][cancellation_reason][enabled]") {
+		cancel["cancellation_reason"] = map[string]any{
+			"enabled": p.boolDefault("features[subscription_cancel][cancellation_reason][enabled]", false),
+			"options": nonNilStrings(p.list("features[subscription_cancel][cancellation_reason][options]")),
+		}
 	}
 	if p.has("features[subscription_cancel][proration_behavior]") {
-		cancel["proration_behavior"] = emptyToNil(p.string("features[subscription_cancel][proration_behavior]"))
+		cancel["proration_behavior"] = p.string("features[subscription_cancel][proration_behavior]")
 	}
 	update := feature("subscription_update")
 	if p.has("features[subscription_update][enabled]") {
@@ -193,7 +198,7 @@ func (h *Handler) handleBillingPortalConfiguration(w http.ResponseWriter, r *htt
 		if p.has("default_return_url") {
 			current["default_return_url"] = emptyToNil(p.string("default_return_url"))
 		}
-		if p.has("login_page[logo_url]") {
+		if p.has("login_page[enabled]") {
 			current["login_page"] = portalLoginPageFromParams(p, current["login_page"])
 		}
 		if portalFeaturesTouched(p) {
@@ -245,14 +250,19 @@ func portalBusinessProfileFromParams(p params, existing any) map[string]any {
 }
 
 func portalLoginPageFromParams(p params, existing any) map[string]any {
-	loginPage := map[string]any{"enabled": false, "logo_url": nil}
+	loginPage := map[string]any{"enabled": false, "url": nil}
 	if current, ok := existing.(map[string]any); ok {
 		for key := range loginPage {
 			loginPage[key] = current[key]
 		}
 	}
-	if p.has("login_page[logo_url]") {
-		loginPage["logo_url"] = emptyToNil(p.string("login_page[logo_url]"))
+	if p.has("login_page[enabled]") {
+		enabled := p.boolDefault("login_page[enabled]", false)
+		loginPage["enabled"] = enabled
+		loginPage["url"] = nil
+		if enabled {
+			loginPage["url"] = "/portal/login"
+		}
 	}
 	return loginPage
 }

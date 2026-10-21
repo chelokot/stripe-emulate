@@ -484,8 +484,8 @@ func TestDefaultTaxRatesCheckoutInvoiceAndSubscription(t *testing.T) {
 	if rateDetails["tax_rate"] != txrID {
 		t.Fatalf("total_taxes tax_rate = %#v, want %s", rateDetails["tax_rate"], txrID)
 	}
-	if totalTax["taxability_reason"] != nil {
-		t.Fatalf("manual tax taxability_reason = %#v, want nil", totalTax["taxability_reason"])
+	if totalTax["taxability_reason"] != "not_available" {
+		t.Fatalf("manual tax taxability_reason = %#v, want not_available", totalTax["taxability_reason"])
 	}
 
 	subscription := getJSON[map[string]any](t, handler, "/v1/subscriptions/"+completed.SubscriptionID)

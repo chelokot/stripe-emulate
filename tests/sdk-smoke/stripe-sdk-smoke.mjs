@@ -454,14 +454,14 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
       assertListContains(listed, created.id, "webhook endpoint list");
 
       const updated = await stripe.webhookEndpoints.update(created.id, {
-        active: true,
+        disabled: false,
         enabled_events: [
           "checkout.session.completed",
           "invoice.*",
           "payment_intent.*",
         ],
       });
-      assertEqual(updated.active, true, "updated webhook endpoint active");
+      assertEqual(updated.status, "enabled", "updated webhook endpoint status");
       return updated;
     },
   );
@@ -470,7 +470,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
     "object",
     "url",
     "enabled_events",
-    "active",
+    "status",
   ]);
 
   const checkoutSession = await check(
@@ -1045,7 +1045,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
 
   await check("webhook endpoint delete", async () => {
     const deleted = await stripe.webhookEndpoints.del(webhookEndpoint.id);
-    assertEqual(deleted.active, false, "deleted webhook endpoint active flag");
+    assertEqual(deleted.deleted, true, "deleted webhook endpoint flag");
   });
 
   const expectDelivery =

@@ -40,16 +40,35 @@ type WebhookService interface {
 	ReplayEvent(context.Context, string, webhooks.ReplayOptions) ([]webhooks.DeliveryAttempt, error)
 }
 
+// WebhookPayload is one event a scenario step emits, carrying the Stripe
+// object as the API would render it.
+type WebhookPayload struct {
+	EventType string
+	ObjectID  string
+	Payload   json.RawMessage
+}
+
+// StripePayloads renders the Stripe objects scenario webhooks carry, so
+// scenario events match the events the API emits for the same change.
+type StripePayloads interface {
+	Checkout(ctx context.Context, result map[string]any) []WebhookPayload
+	InvoicePayment(ctx context.Context, result billing.InvoicePaymentResult) []WebhookPayload
+	Renewal(ctx context.Context, result billing.InvoicePaymentResult) []WebhookPayload
+	Subscription(ctx context.Context, subscription billing.Subscription) json.RawMessage
+}
+
 type Runner struct {
 	Billing    BillingService
 	Webhooks   WebhookService
+	Payloads   StripePayloads
 	HTTPClient *http.Client
 }
 
-func NewRunner(billing BillingService, webhooks WebhookService) *Runner {
+func NewRunner(billing BillingService, webhooks WebhookService, payloads StripePayloads) *Runner {
 	return &Runner{
 		Billing:  billing,
 		Webhooks: webhooks,
+		Payloads: payloads,
 		HTTPClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -701,13 +720,13 @@ func (r *Runner) emitCheckoutWebhooks(ctx context.Context, scenario Scenario, ou
 		return nil, nil
 	}
 	events := []webhooks.Event{}
-	for _, item := range checkoutWebhookPayloads(output) {
+	for _, item := range r.Payloads.Checkout(ctx, output) {
 		state.sequence++
 		event, _, err := r.Webhooks.CreateEvent(ctx, webhooks.EventInput{
-			Type:           item.eventType,
-			ObjectPayload:  item.payload,
-			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
+			Type:           item.EventType,
+			ObjectPayload:  item.Payload,
+			RequestID:      "req_" + item.ObjectID,
+			IdempotencyKey: "emulator:" + item.EventType + ":" + item.ObjectID,
 			ScenarioRunID:  scenario.Name,
 			Source:         webhooks.SourceScenario,
 			Sequence:       state.sequence,
@@ -725,13 +744,13 @@ func (r *Runner) emitInvoicePaymentWebhooks(ctx context.Context, scenario Scenar
 		return nil, nil
 	}
 	var events []webhooks.Event
-	for _, item := range invoicePaymentWebhookPayloads(result) {
+	for _, item := range r.Payloads.InvoicePayment(ctx, result) {
 		state.sequence++
 		event, _, err := r.Webhooks.CreateEvent(ctx, webhooks.EventInput{
-			Type:           item.eventType,
-			ObjectPayload:  item.payload,
-			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
+			Type:           item.EventType,
+			ObjectPayload:  item.Payload,
+			RequestID:      "req_" + item.ObjectID,
+			IdempotencyKey: "emulator:" + item.EventType + ":" + item.ObjectID,
 			ScenarioRunID:  scenario.Name,
 			Source:         webhooks.SourceScenario,
 			Sequence:       state.sequence,
@@ -764,10 +783,7 @@ func (r *Runner) emitClockAdvanceWebhooks(ctx context.Context, scenario Scenario
 		events = append(events, emitted...)
 	}
 	for _, subscription := range advance.Canceled {
-		raw, err := json.Marshal(subscription)
-		if err != nil {
-			continue
-		}
+		raw := r.Payloads.Subscription(ctx, subscription)
 		state.sequence++
 		event, _, err := r.Webhooks.CreateEvent(ctx, webhooks.EventInput{
 			Type:           "customer.subscription.deleted",
@@ -791,13 +807,13 @@ func (r *Runner) emitRenewalWebhooks(ctx context.Context, scenario Scenario, res
 		return nil, nil
 	}
 	var events []webhooks.Event
-	for _, item := range renewalWebhookPayloads(result) {
+	for _, item := range r.Payloads.Renewal(ctx, result) {
 		state.sequence++
 		event, _, err := r.Webhooks.CreateEvent(ctx, webhooks.EventInput{
-			Type:           item.eventType,
-			ObjectPayload:  item.payload,
-			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
+			Type:           item.EventType,
+			ObjectPayload:  item.Payload,
+			RequestID:      "req_" + item.ObjectID,
+			IdempotencyKey: "emulator:" + item.EventType + ":" + item.ObjectID,
 			ScenarioRunID:  scenario.Name,
 			Source:         webhooks.SourceScenario,
 			Sequence:       state.sequence,
@@ -814,10 +830,7 @@ func (r *Runner) emitSubscriptionWebhook(ctx context.Context, scenario Scenario,
 	if r.Webhooks == nil || subscription.ID == "" {
 		return nil, nil
 	}
-	raw, err := json.Marshal(subscription)
-	if err != nil {
-		return nil, err
-	}
+	raw := r.Payloads.Subscription(ctx, subscription)
 	state.sequence++
 	event, _, err := r.Webhooks.CreateEvent(ctx, webhooks.EventInput{
 		Type:           eventType,
@@ -873,143 +886,6 @@ func simulatedAppFailure(params map[string]any) *webhooks.SimulatedAppFailure {
 		Status:             int(status),
 		FailFirstNAttempts: int(failFirst),
 		Body:               firstString(failure, "body", "responseBody", "response_body"),
-	}
-}
-
-type webhookPayload struct {
-	eventType string
-	objectID  string
-	payload   json.RawMessage
-}
-
-func checkoutWebhookPayloads(result map[string]any) []webhookPayload {
-	session, _ := result["session"].(billing.CheckoutSession)
-	subscription, _ := result["subscription"].(billing.Subscription)
-	invoice, _ := result["invoice"].(billing.Invoice)
-	paymentIntent, _ := result["payment_intent"].(billing.PaymentIntent)
-
-	var out []webhookPayload
-	appendPayload := func(eventType string, objectID string, value any) {
-		raw, err := json.Marshal(value)
-		if err == nil {
-			out = append(out, webhookPayload{eventType: eventType, objectID: objectID, payload: raw})
-		}
-	}
-	appendPayload(checkoutSessionEvent(session.Status), session.ID, session)
-	if subscription.ID != "" {
-		appendPayload("customer.subscription.created", subscription.ID, subscription)
-	}
-	if invoice.ID != "" {
-		appendPayload("invoice.created", invoice.ID, invoice)
-		appendPayload("invoice.finalized", invoice.ID, invoice)
-	}
-	if paymentIntent.ID != "" {
-		appendPayload("payment_intent.created", paymentIntent.ID, paymentIntent)
-		if eventType := paymentIntentTerminalEvent(paymentIntent.Status); eventType != "" {
-			appendPayload(eventType, paymentIntent.ID, paymentIntent)
-		}
-	}
-	if invoice.ID != "" {
-		for _, eventType := range invoiceTerminalEvents(invoice.Status, paymentIntent.Status) {
-			appendPayload(eventType, invoice.ID, invoice)
-		}
-	}
-	if subscription.ID != "" {
-		appendPayload("customer.subscription.updated", subscription.ID, subscription)
-	}
-	return out
-}
-
-func invoicePaymentWebhookPayloads(result billing.InvoicePaymentResult) []webhookPayload {
-	var out []webhookPayload
-	appendPayload := func(eventType string, objectID string, value any) {
-		if eventType == "" || objectID == "" {
-			return
-		}
-		raw, err := json.Marshal(value)
-		if err == nil {
-			out = append(out, webhookPayload{eventType: eventType, objectID: objectID, payload: raw})
-		}
-	}
-	if result.PaymentIntent.ID != "" {
-		appendPayload(paymentIntentTerminalEvent(result.PaymentIntent.Status), result.PaymentIntent.ID, result.PaymentIntent)
-	}
-	if result.Invoice.ID != "" {
-		for _, eventType := range invoiceTerminalEvents(result.Invoice.Status, result.PaymentIntent.Status) {
-			appendPayload(eventType, result.Invoice.ID, result.Invoice)
-		}
-	}
-	if result.Subscription.ID != "" {
-		appendPayload("customer.subscription.updated", result.Subscription.ID, result.Subscription)
-	}
-	return out
-}
-
-func renewalWebhookPayloads(result billing.InvoicePaymentResult) []webhookPayload {
-	var out []webhookPayload
-	appendPayload := func(eventType string, objectID string, value any) {
-		if eventType == "" || objectID == "" {
-			return
-		}
-		raw, err := json.Marshal(value)
-		if err == nil {
-			out = append(out, webhookPayload{eventType: eventType, objectID: objectID, payload: raw})
-		}
-	}
-	if result.Invoice.ID != "" {
-		appendPayload("invoice.created", result.Invoice.ID, result.Invoice)
-		appendPayload("invoice.finalized", result.Invoice.ID, result.Invoice)
-	}
-	if result.PaymentIntent.ID != "" {
-		appendPayload("payment_intent.created", result.PaymentIntent.ID, result.PaymentIntent)
-		appendPayload(paymentIntentTerminalEvent(result.PaymentIntent.Status), result.PaymentIntent.ID, result.PaymentIntent)
-	}
-	if result.Invoice.ID != "" {
-		for _, eventType := range invoiceTerminalEvents(result.Invoice.Status, result.PaymentIntent.Status) {
-			appendPayload(eventType, result.Invoice.ID, result.Invoice)
-		}
-	}
-	if result.Subscription.ID != "" {
-		appendPayload("customer.subscription.updated", result.Subscription.ID, result.Subscription)
-	}
-	return out
-}
-
-func paymentIntentTerminalEvent(status string) string {
-	switch status {
-	case "succeeded":
-		return "payment_intent.succeeded"
-	case "processing":
-		return "payment_intent.processing"
-	case "canceled":
-		return "payment_intent.canceled"
-	case "requires_payment_method":
-		return "payment_intent.payment_failed"
-	default:
-		return "payment_intent.payment_failed"
-	}
-}
-
-func checkoutSessionEvent(status string) string {
-	if status == "expired" {
-		return "checkout.session.expired"
-	}
-	return "checkout.session.completed"
-}
-
-func invoiceTerminalEvents(status string, paymentIntentStatus string) []string {
-	switch status {
-	case "paid":
-		return []string{"invoice.payment_succeeded", "invoice.paid"}
-	case "void":
-		return []string{"invoice.voided"}
-	case "open":
-		if paymentIntentStatus == "processing" {
-			return nil
-		}
-		return []string{"invoice.payment_failed"}
-	default:
-		return []string{"invoice.payment_failed"}
 	}
 }
 

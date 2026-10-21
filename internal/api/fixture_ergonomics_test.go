@@ -99,9 +99,9 @@ func TestFixturePromotionCodeSeedAndHostedApply(t *testing.T) {
 	if len(listed.Data) != 1 || listed.Data[0]["code"] != "FXSAVE25" {
 		t.Fatalf("list promotion_codes = %#v, want FXSAVE25", listed.Data)
 	}
-	couponObj, _ := listed.Data[0]["coupon"].(map[string]any)
-	if fmt.Sprint(couponObj["id"]) != "coupon_fx_promo25" {
-		t.Fatalf("promo coupon = %#v, want coupon_fx_promo25", couponObj)
+	promotion, _ := listed.Data[0]["promotion"].(map[string]any)
+	if promotion["coupon"] != "coupon_fx_promo25" {
+		t.Fatalf("promo promotion = %#v, want coupon_fx_promo25", promotion)
 	}
 
 	session := postForm[map[string]any](t, handler, "/v1/checkout/sessions", url.Values{
@@ -218,7 +218,7 @@ func TestFixtureSubscriptionDefaultTaxRatesAndProration(t *testing.T) {
 	itemData, _ := items["data"].([]any)
 	item0, _ := itemData[0].(map[string]any)
 	itemID := fmt.Sprint(item0["id"])
-	periodStart := int64(sub["current_period_start"].(float64))
+	periodStart := int64(item0["current_period_start"].(float64))
 
 	upgraded := postForm[map[string]any](t, handler, "/v1/subscriptions/sub_fx_tax", url.Values{
 		"items[0][id]":       {itemID},

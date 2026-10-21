@@ -53,7 +53,7 @@ type Event struct {
 	PendingWebhooks int             `json:"pending_webhooks"`
 	Request         EventRequest    `json:"request,omitempty"`
 	Data            EventData       `json:"data"`
-	Emulator        EventMetadata   `json:"emulator"`
+	Emulator        EventMetadata   `json:"emulator_metadata"`
 	RawPayload      json.RawMessage `json:"-"`
 	CreatedAt       time.Time       `json:"-"`
 }

@@ -37,7 +37,7 @@ func TestBillingPortalConfigurationsCRUD(t *testing.T) {
 		"business_profile[headline]":                        {"Acme Billing"},
 		"business_profile[privacy_policy_url]":              {"https://acme.test/privacy"},
 		"default_return_url":                                {"https://acme.test/return"},
-		"login_page[logo_url]":                              {"https://acme.test/logo.png"},
+		"login_page[enabled]":                               {"true"},
 		"features[customer_update][enabled]":                {"true"},
 		"features[customer_update][allowed_updates][0]":     {"email"},
 		"features[subscription_cancel][mode]":               {"immediately"},
@@ -73,7 +73,7 @@ func TestBillingPortalConfigurationsCRUD(t *testing.T) {
 		t.Fatalf("created features missing default invoice_history: %#v", features)
 	}
 	loginPage, _ := created["login_page"].(map[string]any)
-	if fmt.Sprint(loginPage["logo_url"]) != "https://acme.test/logo.png" {
+	if loginPage["enabled"] != true || loginPage["url"] == nil {
 		t.Fatalf("created login_page = %#v", loginPage)
 	}
 	meta, _ := created["metadata"].(map[string]any)

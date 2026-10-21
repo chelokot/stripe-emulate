@@ -15,15 +15,15 @@ import (
 // subscription proration helpers — amounts are integer cents; VAT 10% exclusive.
 
 type prorationSubResponse struct {
-	ID                 string            `json:"id"`
-	LatestInvoice      string            `json:"latest_invoice"`
-	CurrentPeriodStart int64             `json:"current_period_start"`
-	CurrentPeriodEnd   int64             `json:"current_period_end"`
-	Metadata           map[string]string `json:"metadata"`
-	Items              struct {
+	ID            string            `json:"id"`
+	LatestInvoice string            `json:"latest_invoice"`
+	Metadata      map[string]string `json:"metadata"`
+	Items         struct {
 		Data []struct {
-			ID    string `json:"id"`
-			Price struct {
+			ID                 string `json:"id"`
+			CurrentPeriodStart int64  `json:"current_period_start"`
+			CurrentPeriodEnd   int64  `json:"current_period_end"`
+			Price              struct {
 				ID string `json:"id"`
 			} `json:"price"`
 		} `json:"data"`
@@ -87,8 +87,8 @@ func TestSubscriptionUpdateAlwaysInvoiceUpgrade(t *testing.T) {
 		"items[0][quantity]":   {"1"},
 		"default_tax_rates[0]": {taxRateID},
 	})
-	periodStart := created.CurrentPeriodStart
-	periodEnd := created.CurrentPeriodEnd
+	periodStart := created.Items.Data[0].CurrentPeriodStart
+	periodEnd := created.Items.Data[0].CurrentPeriodEnd
 	createInvoiceID := created.LatestInvoice
 
 	// Pin proration_date to period start so remaining == full period (no clock skew).
@@ -103,8 +103,8 @@ func TestSubscriptionUpdateAlwaysInvoiceUpgrade(t *testing.T) {
 	if upgraded.LatestInvoice == "" || upgraded.LatestInvoice == createInvoiceID {
 		t.Fatalf("latest_invoice = %q, want new proration invoice (create was %q)", upgraded.LatestInvoice, createInvoiceID)
 	}
-	if upgraded.CurrentPeriodStart != periodStart || upgraded.CurrentPeriodEnd != periodEnd {
-		t.Fatalf("period changed = %d-%d, want unchanged %d-%d", upgraded.CurrentPeriodStart, upgraded.CurrentPeriodEnd, periodStart, periodEnd)
+	if upgraded.Items.Data[0].CurrentPeriodStart != periodStart || upgraded.Items.Data[0].CurrentPeriodEnd != periodEnd {
+		t.Fatalf("period changed = %d-%d, want unchanged %d-%d", upgraded.Items.Data[0].CurrentPeriodStart, upgraded.Items.Data[0].CurrentPeriodEnd, periodStart, periodEnd)
 	}
 	if upgraded.Items.Data[0].Price.ID != pro.ID {
 		t.Fatalf("price = %s, want pro", upgraded.Items.Data[0].Price.ID)
@@ -164,14 +164,14 @@ func TestSubscriptionUpdateAlwaysInvoiceBillingCycleAnchorNow(t *testing.T) {
 		"proration_date":       {strconv.FormatInt(at.Unix(), 10)},
 		"default_tax_rates[0]": {taxRateID},
 	})
-	if upgraded.CurrentPeriodStart != at.Unix() {
-		t.Fatalf("period start = %d, want proration_date %d", upgraded.CurrentPeriodStart, at.Unix())
+	if upgraded.Items.Data[0].CurrentPeriodStart != at.Unix() {
+		t.Fatalf("period start = %d, want proration_date %d", upgraded.Items.Data[0].CurrentPeriodStart, at.Unix())
 	}
 	wantEnd := at.AddDate(0, 1, 0)
-	if upgraded.CurrentPeriodEnd != wantEnd.Unix() {
-		t.Fatalf("period end = %d, want %d", upgraded.CurrentPeriodEnd, wantEnd.Unix())
+	if upgraded.Items.Data[0].CurrentPeriodEnd != wantEnd.Unix() {
+		t.Fatalf("period end = %d, want %d", upgraded.Items.Data[0].CurrentPeriodEnd, wantEnd.Unix())
 	}
-	if upgraded.CurrentPeriodEnd == periodEnd.Unix() {
+	if upgraded.Items.Data[0].CurrentPeriodEnd == periodEnd.Unix() {
 		t.Fatal("period end still old bound; anchor=now did not reset")
 	}
 
@@ -375,7 +375,7 @@ func TestSubscriptionUpdateProrationNone(t *testing.T) {
 	if upgraded.LatestInvoice != created.LatestInvoice {
 		t.Fatalf("latest_invoice changed under none")
 	}
-	if upgraded.CurrentPeriodStart != created.CurrentPeriodStart || upgraded.CurrentPeriodEnd != created.CurrentPeriodEnd {
+	if upgraded.Items.Data[0].CurrentPeriodStart != created.Items.Data[0].CurrentPeriodStart || upgraded.Items.Data[0].CurrentPeriodEnd != created.Items.Data[0].CurrentPeriodEnd {
 		t.Fatal("period changed under none")
 	}
 	if upgraded.Items.Data[0].Price.ID != pro.ID {
@@ -579,7 +579,7 @@ func TestSubscriptionUpdateAlwaysInvoiceWithDiscountAndTax(t *testing.T) {
 		"items[0][id]":         {created.Items.Data[0].ID},
 		"items[0][price]":      {pro.ID},
 		"proration_behavior":   {"always_invoice"},
-		"proration_date":       {strconv.FormatInt(created.CurrentPeriodStart, 10)},
+		"proration_date":       {strconv.FormatInt(created.Items.Data[0].CurrentPeriodStart, 10)},
 		"default_tax_rates[0]": {taxRateID},
 	})
 	invoice := getJSON[struct {

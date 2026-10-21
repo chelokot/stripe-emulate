@@ -31,7 +31,7 @@ func TestCreatePreviewProrationLinesPerSubscriptionItem(t *testing.T) {
 		"subscription_details[items][1][id]":       {seatItem},
 		"subscription_details[items][1][price]":    {seat},
 		"subscription_details[items][1][quantity]": {"5"},
-		"subscription_details[proration_date]":     {strconv.FormatInt(sub.CurrentPeriodStart, 10)},
+		"subscription_details[proration_date]":     {strconv.FormatInt(sub.Items.Data[0].CurrentPeriodStart, 10)},
 	})
 	lines, _ := preview["lines"].(map[string]any)["data"].([]any)
 	byItem := map[string]int64{}
@@ -94,22 +94,22 @@ func TestSubscriptionInvoiceLinesCarryPeriodParentAndDiscount(t *testing.T) {
 	if len(first) != 1 || first[0].Amount != 4900 || first[0].Proration || len(first[0].DiscountAmounts) != 1 || first[0].DiscountAmounts[0].Amount != 1225 {
 		t.Fatalf("create lines=%#v, want one 4900 line with 1225 discount", first)
 	}
-	if first[0].Period.Start != created.CurrentPeriodStart || first[0].Period.End != created.CurrentPeriodEnd {
-		t.Fatalf("create line period=%#v, want subscription period %d..%d", first[0].Period, created.CurrentPeriodStart, created.CurrentPeriodEnd)
+	if first[0].Period.Start != created.Items.Data[0].CurrentPeriodStart || first[0].Period.End != created.Items.Data[0].CurrentPeriodEnd {
+		t.Fatalf("create line period=%#v, want subscription period %d..%d", first[0].Period, created.Items.Data[0].CurrentPeriodStart, created.Items.Data[0].CurrentPeriodEnd)
 	}
 
 	upgraded := postForm[prorationSubResponse](t, handler, "/v1/subscriptions/"+created.ID, url.Values{
 		"items[0][id]":       {itemID},
 		"items[0][price]":    {pro.ID},
 		"proration_behavior": {"always_invoice"},
-		"proration_date":     {strconv.FormatInt(created.CurrentPeriodStart, 10)},
+		"proration_date":     {strconv.FormatInt(created.Items.Data[0].CurrentPeriodStart, 10)},
 	})
 	upgrade := linesOf(upgraded.LatestInvoice)
 	if len(upgrade) != 2 || upgrade[0].Amount != -4900 || upgrade[1].Amount != 9900 || !upgrade[0].Proration || !upgrade[1].Proration {
 		t.Fatalf("upgrade lines=%#v, want -4900 credit and 9900 charge prorations", upgrade)
 	}
-	if len(upgrade[1].DiscountAmounts) != 1 || upgrade[1].DiscountAmounts[0].Amount != 1250 || upgrade[1].Period.End != created.CurrentPeriodEnd {
-		t.Fatalf("upgrade charge line=%#v, want 1250 discount and period ending %d", upgrade[1], created.CurrentPeriodEnd)
+	if len(upgrade[1].DiscountAmounts) != 1 || upgrade[1].DiscountAmounts[0].Amount != 1250 || upgrade[1].Period.End != created.Items.Data[0].CurrentPeriodEnd {
+		t.Fatalf("upgrade charge line=%#v, want 1250 discount and period ending %d", upgrade[1], created.Items.Data[0].CurrentPeriodEnd)
 	}
 }
 

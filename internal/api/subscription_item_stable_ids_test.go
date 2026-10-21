@@ -31,7 +31,7 @@ func newTestHandlerWithStore(t *testing.T) (http.Handler, *storage.SQLiteStore) 
 		Webhooks:    webhookService,
 		Diagnostics: diagnostics.NewService(store),
 	}
-	return New(opts), store
+	return withStripeSchemaCheck(t, New(opts), store), store
 }
 
 // storedInvoiceMetadata reads emulator-internal invoice evidence that the API
@@ -189,7 +189,7 @@ func TestSubscriptionUpdateByStoredItemIDProration(t *testing.T) {
 		"items[0][id]":         {itemID},
 		"items[0][price]":      {pro.ID},
 		"proration_behavior":   {"always_invoice"},
-		"proration_date":       {strconv.FormatInt(created.CurrentPeriodStart, 10)},
+		"proration_date":       {strconv.FormatInt(created.Items.Data[0].CurrentPeriodStart, 10)},
 		"payment_behavior":     {"error_if_incomplete"},
 		"default_tax_rates[0]": {taxRateID},
 	})
@@ -240,7 +240,7 @@ func TestRenewalInvoiceBillingReasonSubscriptionCycle(t *testing.T) {
 
 	// Advance past period end to trigger renewal.
 	_ = postForm[map[string]any](t, handler, "/v1/test_helpers/test_clocks/clock_billing_reason/advance", url.Values{
-		"frozen_time": {strconv.FormatInt(created.CurrentPeriodEnd+1, 10)},
+		"frozen_time": {strconv.FormatInt(created.Items.Data[0].CurrentPeriodEnd+1, 10)},
 	})
 	invoices := listSubscriptionInvoices(t, handler, created.ID)
 	if len(invoices) < 2 {

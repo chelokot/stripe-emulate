@@ -16,17 +16,18 @@ import (
 )
 
 // handlerOnStore builds a handler over an already-open store, which is how a
-// restart is expressed in a test: same store, second handler.
+// restart is expressed in a test: same store, second handler. The store is
+// closed by the test that opened it, after every handler's cleanup.
 func handlerOnStore(t *testing.T, store *storage.SQLiteStore) http.Handler {
 	t.Helper()
 	webhookService := webhooks.NewService(store)
-	webhookstest.RegisterStoreCleanup(t, webhookService, store)
-	return New(Options{
+	webhookstest.RegisterStoreCleanup(t, webhookService, nil)
+	return withStripeSchemaCheck(t, New(Options{
 		Billing:       billing.NewService(store),
 		Webhooks:      webhookService,
 		Diagnostics:   diagnostics.NewService(store),
 		LocalEvidence: store,
-	})
+	}), store)
 }
 
 // A restart used to drop every evidence object while the rest of the store
@@ -36,6 +37,7 @@ func TestLocalEvidenceSurvivesHandlerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	webhookstest.RegisterStoreCleanup(t, nil, store)
 	first := handlerOnStore(t, store)
 
 	// Path 1: the API. Path 2: fixture apply, which writes explicit IDs and is the
@@ -84,6 +86,7 @@ func TestLocalEvidenceDeleteSurvivesHandlerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	webhookstest.RegisterStoreCleanup(t, nil, store)
 	first := handlerOnStore(t, store)
 	postForm[map[string]any](t, first, "/v1/coupons", url.Values{
 		"id":          {"cpn_gone"},

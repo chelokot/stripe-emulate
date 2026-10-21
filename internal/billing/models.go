@@ -187,6 +187,7 @@ type Subscription struct {
 	CanceledAt         *time.Time        `json:"canceled_at,omitempty"`
 	LatestInvoiceID    string            `json:"latest_invoice,omitempty"`
 	Metadata           map[string]string `json:"metadata,omitempty"`
+	CreatedAt          time.Time         `json:"created_at"`
 }
 
 type Invoice struct {

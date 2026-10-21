@@ -48,7 +48,7 @@ func TestInvoicePreviewTaxMatchesConfirmedInvoice(t *testing.T) {
 		"items[0][quantity]":   {"1"},
 		"default_tax_rates[0]": {taxRateID},
 	})
-	periodStart := created.CurrentPeriodStart
+	periodStart := created.Items.Data[0].CurrentPeriodStart
 	itemID := created.Items.Data[0].ID
 
 	preview := postForm[previewTaxFields](t, handler, "/v1/invoices/create_preview", url.Values{
@@ -115,11 +115,11 @@ func TestInvoicePreviewTaxDecimalPercentMatchesConfirmed(t *testing.T) {
 		"default_tax_rates[0]": {txr.ID},
 	})
 	// Mid-period: half remaining of the live subscription period.
-	half := (created.CurrentPeriodEnd - created.CurrentPeriodStart) / 2
-	prorationDate := created.CurrentPeriodStart + half
+	half := (created.Items.Data[0].CurrentPeriodEnd - created.Items.Data[0].CurrentPeriodStart) / 2
+	prorationDate := created.Items.Data[0].CurrentPeriodStart + half
 
-	remaining := created.CurrentPeriodEnd - prorationDate
-	periodSec := created.CurrentPeriodEnd - created.CurrentPeriodStart
+	remaining := created.Items.Data[0].CurrentPeriodEnd - prorationDate
+	periodSec := created.Items.Data[0].CurrentPeriodEnd - created.Items.Data[0].CurrentPeriodStart
 	wantSubtotal := (9900 - 4900) * remaining / periodSec
 	_, _, _, wantTax := billing.ComputeTaxRateAmounts(wantSubtotal, []billing.AppliedTaxRate{{Percentage: 8.875, Inclusive: false}})
 	wantTotal := wantSubtotal + wantTax
@@ -167,7 +167,7 @@ func TestInvoicePreviewInclusiveTaxMatchesConfirmed(t *testing.T) {
 		"items[0][quantity]":   {"1"},
 		"default_tax_rates[0]": {txr.ID},
 	})
-	periodStart := created.CurrentPeriodStart
+	periodStart := created.Items.Data[0].CurrentPeriodStart
 
 	// base 5000 inclusive 10% → tax Round(5000*10/110)=455, pretax 4545, total 5000
 	_, wantPretax, _, wantTax := billing.ComputeTaxRateAmounts(5000, []billing.AppliedTaxRate{{Percentage: 10, Inclusive: true}})
@@ -216,7 +216,7 @@ func TestInvoicePreviewDiscountAndTaxMatchesConfirmed(t *testing.T) {
 		"coupon":               {coupon.ID},
 		"default_tax_rates[0]": {taxRateID},
 	})
-	periodStart := created.CurrentPeriodStart
+	periodStart := created.Items.Data[0].CurrentPeriodStart
 
 	// subtotal delta 5000, discounted base 3750, tax 375, total 4125
 	wantSubtotal := int64(5000)
@@ -259,7 +259,7 @@ func TestInvoicePreviewNoTaxRatesKeepsNilTax(t *testing.T) {
 		"items[0][price]":    {lite.ID},
 		"items[0][quantity]": {"1"},
 	})
-	periodStart := created.CurrentPeriodStart
+	periodStart := created.Items.Data[0].CurrentPeriodStart
 
 	preview := postForm[previewTaxFields](t, handler, "/v1/invoices/create_preview", url.Values{
 		"subscription":                             {created.ID},
@@ -289,7 +289,7 @@ func TestInvoicePreviewPriceIDFormMatchesPrice(t *testing.T) {
 		"items[0][quantity]":   {"1"},
 		"default_tax_rates[0]": {taxRateID},
 	})
-	periodStart := created.CurrentPeriodStart
+	periodStart := created.Items.Data[0].CurrentPeriodStart
 
 	viaPrice := postForm[previewTaxFields](t, handler, "/v1/invoices/create_preview", url.Values{
 		"subscription":                             {created.ID},
