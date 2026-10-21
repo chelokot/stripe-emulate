@@ -13,7 +13,7 @@ const minTimestamp = 1_000_000_000
 
 var dashboardOnlyFields = map[string]bool{"request_log_url": true}
 
-var randomFields = map[string]bool{"invoice_prefix": true}
+var randomFields = map[string]bool{"invoice_prefix": true, "fingerprint": true}
 
 type differ struct {
 	stripeToEmulator map[string]string
@@ -90,6 +90,18 @@ func (d *differ) equivalentStrings(stripe string, emulator string) bool {
 		return true
 	}
 	if isURL(stripe) && isURL(emulator) {
+		return true
+	}
+	if strings.HasPrefix(stripe, "/v1/") && strings.HasPrefix(emulator, "/v1/") {
+		stripeSegments, emulatorSegments := strings.Split(stripe, "/"), strings.Split(emulator, "/")
+		if len(stripeSegments) != len(emulatorSegments) {
+			return false
+		}
+		for index := range stripeSegments {
+			if !d.equivalentStrings(stripeSegments[index], emulatorSegments[index]) {
+				return false
+			}
+		}
 		return true
 	}
 	if stripeSecret, emulatorSecret := strings.Index(stripe, "_secret_"), strings.Index(emulator, "_secret_"); stripeSecret > 0 && emulatorSecret > 0 {

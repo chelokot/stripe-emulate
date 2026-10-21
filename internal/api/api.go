@@ -4701,7 +4701,7 @@ func (h *Handler) handlePaymentMethods(w http.ResponseWriter, r *http.Request) {
 			writeResult(w, result, nil)
 			return
 		}
-		writeResult(w, stripeDetachedPaymentMethod(paymentMethodID), nil)
+		writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
@@ -4737,7 +4737,7 @@ func (h *Handler) handlePaymentMethod(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.HasPrefix(paymentMethodID, "pm_") {
-			writeResult(w, stripeDetachedPaymentMethod(paymentMethodID), nil)
+			writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
 			return
 		}
 		writeResult(w, nil, billing.ErrNotFound)
@@ -4760,7 +4760,7 @@ func (h *Handler) handlePaymentMethod(w http.ResponseWriter, r *http.Request) {
 			writeResult(w, stripePaymentMethod(customer.ID, paymentMethodID), nil)
 			return
 		}
-		writeResult(w, stripeDetachedPaymentMethod(paymentMethodID), nil)
+		writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
@@ -4813,7 +4813,7 @@ func (h *Handler) handlePaymentMethodDetach(w http.ResponseWriter, r *http.Reque
 		writeResult(w, nil, err)
 		return
 	}
-	writeResult(w, stripeDetachedPaymentMethod(paymentMethodID), nil)
+	writeResult(w, stripePaymentMethod("", paymentMethodID), nil)
 }
 
 func (h *Handler) handleCustomerPaymentMethods(w http.ResponseWriter, r *http.Request, customerID string) {
@@ -7258,6 +7258,7 @@ func stripePaymentMethod(customerID string, paymentMethodID string) map[string]a
 		paymentMethodID = "pm_" + sanitizeID(customerID)
 	}
 	brand := paymentMethodBrand(paymentMethodID)
+	now := time.Now().UTC()
 	return map[string]any{
 		"id":              paymentMethodID,
 		"object":          "payment_method",
@@ -7271,39 +7272,37 @@ func stripePaymentMethod(customerID string, paymentMethodID string) map[string]a
 				"postal_code": nil,
 				"state":       nil,
 			},
-			"email": nil,
-			"name":  nil,
-			"phone": nil,
+			"email":  nil,
+			"name":   nil,
+			"phone":  nil,
+			"tax_id": nil,
 		},
-		"customer": customerID,
-		"type":     "card",
+		"customer":         emptyToNil(customerID),
+		"customer_account": nil,
+		"type":             "card",
 		"card": map[string]any{
-			"brand":          brand,
-			"checks":         map[string]any{"address_line1_check": nil, "address_postal_code_check": nil, "cvc_check": "pass"},
-			"country":        "US",
-			"exp_month":      12,
-			"exp_year":       2035,
-			"fingerprint":    paymentMethodFingerprint(paymentMethodID),
-			"funding":        paymentMethodFunding(paymentMethodID),
-			"generated_from": nil,
-			"last4":          paymentMethodLast4(paymentMethodID),
-			"networks":       map[string]any{"available": []string{brand}, "preferred": nil},
+			"brand":            brand,
+			"checks":           map[string]any{"address_line1_check": nil, "address_postal_code_check": nil, "cvc_check": "pass"},
+			"country":          "US",
+			"display_brand":    brand,
+			"exp_month":        int(now.Month()),
+			"exp_year":         now.Year() + 1,
+			"fingerprint":      paymentMethodFingerprint(paymentMethodID),
+			"funding":          paymentMethodFunding(paymentMethodID),
+			"generated_from":   nil,
+			"last4":            paymentMethodLast4(paymentMethodID),
+			"networks":         map[string]any{"available": []string{brand}, "preferred": nil},
+			"regulated_status": "unregulated",
 			"three_d_secure_usage": map[string]any{
 				"supported": true,
 			},
 			"wallet": nil,
 		},
-		"created":   time.Now().UTC().Unix(),
-		"livemode":  false,
-		"metadata":  map[string]string{},
-		"redaction": nil,
+		"created":                      now.Unix(),
+		"livemode":                     false,
+		"metadata":                     map[string]string{},
+		"shared_payment_granted_token": nil,
 	}
-}
-
-func stripeDetachedPaymentMethod(paymentMethodID string) map[string]any {
-	out := stripePaymentMethod("", paymentMethodID)
-	out["customer"] = nil
-	return out
 }
 
 func stripePaymentMethods(customer billing.Customer) []map[string]any {
