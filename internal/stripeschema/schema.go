@@ -50,7 +50,15 @@ type schema struct {
 }
 
 type Validator struct {
-	schemas map[string]*schema
+	schemas  map[string]*schema
+	observed func(schema string)
+}
+
+// Observing returns a validator that reports every component schema it
+// checks a value against.
+func (v Validator) Observing(observed func(schema string)) Validator {
+	v.observed = observed
+	return v
 }
 
 func New() (Validator, error) {
@@ -91,6 +99,9 @@ func (v Validator) objects(path string, value any) []string {
 			if !ok {
 				return []string{fmt.Sprintf("%s: unknown object %q", path, name)}
 			}
+			if v.observed != nil {
+				v.observed(name)
+			}
 			return v.check(path, typed, resolved, name)
 		}
 		var violations []string
@@ -109,6 +120,9 @@ func (v Validator) objects(path string, value any) []string {
 func (v Validator) check(path string, value any, s *schema, name string) []string {
 	if s.Ref != "" {
 		target := strings.TrimPrefix(s.Ref, "#/components/schemas/")
+		if v.observed != nil && value != nil {
+			v.observed(target)
+		}
 		return v.check(path, value, v.schemas[target], target)
 	}
 	if value == nil {

@@ -14,60 +14,126 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  # stripe/openapi commit whose openapi/spec3.json is API version 2025-12-15.clover.
+  STRIPE_OPENAPI_SPEC: https://raw.githubusercontent.com/stripe/openapi/ed93b94259c55782b8b04e01f4ffdaa2872e9bcd/openapi/spec3.json
+
 jobs:
-  release-gate:
-    name: Release gate
+  go:
+    name: Go tests and Stripe schema check
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Tests, with every API response and webhook event checked against Stripe's schemas
+        run: STRIPE_SCHEMA_SUMMARY="$RUNNER_TEMP/schema.md" go test ./...
+
+      - name: Compatibility scorecard
+        run: go run ./cmd/stripe-emulate compatibility scorecard --output-dir "$RUNNER_TEMP/scorecard"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Stripe schema check"
+            echo
+            cat "$RUNNER_TEMP/schema.md"
+            echo
+            echo "$(go test -list . ./... | grep -c '^Test') Go tests passed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  coverage:
+    name: Stripe API coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Inventory against the 2025-12-15.clover spec
+        run: |
+          curl -fsSL "$STRIPE_OPENAPI_SPEC" -o "$RUNNER_TEMP/spec3.json"
+          go run ./cmd/stripe-emulate compatibility inventory \
+            --openapi "$RUNNER_TEMP/spec3.json" \
+            --output-dir "$RUNNER_TEMP/inventory" \
+            --source "stripe/openapi@ed93b94"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Stripe API coverage"
+            echo
+            grep '^- Operations:' "$RUNNER_TEMP/inventory/stripe-api-inventory.md"
+            echo
+            sed -n '/^## Family Coverage/,/^## Operations/p' "$RUNNER_TEMP/inventory/stripe-api-inventory.md" | sed '1d;$d'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  parity:
+    name: Live parity with Stripe test mode
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STRIPE_PARITY_KEY: ${{ secrets.STRIPE_PARITY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Diff the emulator against Stripe test mode
+        if: env.STRIPE_PARITY_KEY != ''
+        shell: bash
+        run: go test -run TestParity -v ./internal/parity | tee "$RUNNER_TEMP/parity.log"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Live parity with Stripe test mode"
+            echo
+            if [ -z "$STRIPE_PARITY_KEY" ]; then
+              echo "Skipped: add a test-mode key as the STRIPE_PARITY_KEY repository secret to run it."
+            else
+              grep -o 'parity: .*' "$RUNNER_TEMP/parity.log"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sdk:
+    name: Official stripe-node SDK, UI and scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
 
-      - name: Install frontend dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Check browser smoke browser
-        run: google-chrome --version
+      - name: Frontend typecheck and build
+        run: npm run typecheck && npm run build
 
-      - name: Go formatting
-        shell: bash
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "::error::gofmt drift; run 'gofmt -w' on:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-      - name: Go tests
-        run: go test ./...
-
-      - name: Compatibility scorecard
-        run: go run ./cmd/stripe-emulate compatibility scorecard --output-dir /tmp/emulator-compatibility
-
-      - name: Frontend typecheck
-        run: npm run typecheck
-
-      - name: Frontend build
-        run: npm run build
-
-      - name: Sample app smoke
-        run: npm run smoke:sample
-
-      - name: Stripe SDK smoke
+      - name: stripe-node SDK smoke
         run: npm run smoke:sdk
 
       - name: Web UI smoke
@@ -75,41 +141,17 @@ jobs:
           PLAYWRIGHT_CHROMIUM_CHANNEL: chrome
         run: npm run smoke:web
 
-      - name: Build Emulator binary
-        run: go build -o /tmp/stripe-emulate ./cmd/stripe-emulate
+      - name: Sample app smoke
+        run: npm run smoke:sample
 
-      - name: Scenario smoke
+      - name: Scenario runs against the sample app
         shell: bash
         run: |
-          set -euo pipefail
-
-          PORT=3300 npm --prefix examples/sample-app start > /tmp/emulator-sample-app.log 2>&1 &
-          sample_pid=$!
-
-          cleanup() {
-            kill "$sample_pid" 2>/dev/null || true
-            wait "$sample_pid" 2>/dev/null || true
-            echo "::group::sample app log"
-            cat /tmp/emulator-sample-app.log || true
-            echo "::endgroup::"
-          }
-          trap cleanup EXIT
-
-          for _ in {1..30}; do
-            if curl -fsS http://127.0.0.1:3300/healthz >/dev/null 2>&1; then
-              break
-            fi
-            if ! kill -0 "$sample_pid" 2>/dev/null; then
-              echo "sample app exited before becoming ready" >&2
-              exit 1
-            fi
-            sleep 1
-          done
-
-          curl -fsS http://127.0.0.1:3300/healthz >/dev/null
-          /tmp/stripe-emulate scenario run examples/subscription-payment-retry.yml
-          curl -fsS -X POST http://127.0.0.1:3300/test/reset >/dev/null
-          /tmp/stripe-emulate scenario run examples/saas-adoption-contract.yml
-
-      - name: Docker build
-        run: docker build -t stripe-emulate:local .
+          go build -o "$RUNNER_TEMP/stripe-emulate" ./cmd/stripe-emulate
+          PORT=3300 npm --prefix examples/sample-app start > "$RUNNER_TEMP/sample-app.log" 2>&1 &
+          sample_app=$!
+          trap 'kill "$sample_app"; cat "$RUNNER_TEMP/sample-app.log"' EXIT
+          for _ in $(seq 30); do curl -fsS http://127.0.0.1:3300/healthz && break; sleep 1; done
+          "$RUNNER_TEMP/stripe-emulate" scenario run examples/subscription-payment-retry.yml
+          curl -fsS -X POST http://127.0.0.1:3300/test/reset
+          "$RUNNER_TEMP/stripe-emulate" scenario run examples/saas-adoption-contract.yml

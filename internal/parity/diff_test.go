@@ -21,6 +21,7 @@ type differ struct {
 	stripeToEmulator map[string]string
 	emulatorToStripe map[string]string
 	diffs            []string
+	fields           int
 }
 
 func newDiffer() *differ {
@@ -71,16 +72,19 @@ func (d *differ) compare(path string, stripe any, emulator any) {
 			d.compare(fmt.Sprintf("%s[%d]", path, index), stripeValue[index], emulatorValue[index])
 		}
 	case string:
+		d.fields++
 		emulatorValue, ok := emulator.(string)
 		if !ok || !d.equivalentStrings(stripeValue, emulatorValue) {
 			d.report(path, stripe, emulator)
 		}
 	case float64:
+		d.fields++
 		emulatorValue, ok := emulator.(float64)
 		if !ok || (stripeValue != emulatorValue && (stripeValue < minTimestamp || emulatorValue < minTimestamp)) {
 			d.report(path, stripe, emulator)
 		}
 	default:
+		d.fields++
 		if stripe != emulator {
 			d.report(path, stripe, emulator)
 		}

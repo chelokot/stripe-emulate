@@ -46,7 +46,7 @@ func TestParity(t *testing.T) {
 	}
 	emulatorURL := startEmulator(t)
 	run := strconv.FormatInt(time.Now().UnixNano(), 36)
-	matched, total := 0, 0
+	matched, total, fields := 0, 0, 0
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			stripe := &side{name: "stripe", baseURL: stripeBaseURL, key: key, responses: map[string]any{}, created: map[string]string{}}
@@ -67,12 +67,13 @@ func TestParity(t *testing.T) {
 					matched++
 				}
 			}
+			fields += d.fields
 			if len(d.diffs) > 0 {
 				t.Errorf("%d differences:\n%s", len(d.diffs), strings.Join(d.diffs, "\n"))
 			}
 		})
 	}
-	t.Logf("parity: %d/%d steps match", matched, total)
+	t.Logf("parity: %d/%d steps match, %d response fields compared with Stripe across %d scenarios", matched, total, fields, len(scenarios))
 }
 
 func startEmulator(t *testing.T) string {
