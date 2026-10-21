@@ -35,6 +35,11 @@ type Server struct {
 	// in-flight async deliveries before storage is torn down.
 	webhookMu       sync.Mutex
 	webhookServices []*webhooks.Service
+
+	// Each run's webhook retry scheduler runs until Close cancels it.
+	stopSchedulers context.CancelFunc
+	schedulersCtx  context.Context
+	schedulers     sync.WaitGroup
 }
 
 func New(opts Options) *Server {
@@ -43,6 +48,7 @@ func New(opts Options) *Server {
 		store: opts.Store,
 		mux:   http.NewServeMux(),
 	}
+	s.schedulersCtx, s.stopSchedulers = context.WithCancel(context.Background())
 	s.cfg.PublicBasePath = config.NormalizePublicBasePath(s.cfg.PublicBasePath)
 	s.runs = newRunManager(s.cfg, s.store, s.buildAPIHandler)
 	s.routes()
@@ -54,6 +60,8 @@ func New(opts Options) *Server {
 // and is not closed here — callers should Close after this returns so delivery
 // records are flushed first.
 func (s *Server) Close() error {
+	s.stopSchedulers()
+	s.schedulers.Wait()
 	s.webhookMu.Lock()
 	services := append([]*webhooks.Service(nil), s.webhookServices...)
 	s.webhookMu.Unlock()
@@ -232,6 +240,11 @@ func (s *Server) buildAPIHandler(store storage.Store) (http.Handler, error) {
 		s.webhookMu.Lock()
 		s.webhookServices = append(s.webhookServices, webhookService)
 		s.webhookMu.Unlock()
+		s.schedulers.Add(1)
+		go func() {
+			defer s.schedulers.Done()
+			webhookService.RunScheduler(s.schedulersCtx, time.Second)
+		}()
 	}
 	var diagnosticsService *diagnostics.Service
 	if diagnosticsRepo, ok := store.(diagnostics.Repository); ok {

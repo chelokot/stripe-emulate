@@ -164,6 +164,16 @@ func (s *SQLiteStore) CreateDeliveryAttempt(ctx context.Context, attempt webhook
 	return attempt, nil
 }
 
+func (s *SQLiteStore) UpdateDeliveryAttempt(ctx context.Context, attempt webhooks.DeliveryAttempt) (webhooks.DeliveryAttempt, error) {
+	if _, err := s.db.ExecContext(ctx, `UPDATE delivery_attempts
+		SET status = ?, delivered_at = ?, request_headers = ?, request_body = ?, response_status = ?, response_body = ?, error = ?, next_retry_at = ?, metadata = ?
+		WHERE id = ?`,
+		attempt.Status, encodeOptionalTime(attempt.DeliveredAt), encodeMap(attempt.RequestHeaders), string(attempt.RequestBody), attempt.ResponseStatus, attempt.ResponseBody, attempt.Error, encodeOptionalTime(attempt.NextRetryAt), encodeMap(attempt.Metadata), attempt.ID); err != nil {
+		return webhooks.DeliveryAttempt{}, err
+	}
+	return attempt, nil
+}
+
 func (s *SQLiteStore) ListDeliveryAttempts(ctx context.Context, filter webhooks.DeliveryAttemptFilter) ([]webhooks.DeliveryAttempt, error) {
 	clauses := []string{"1=1"}
 	args := []any{}

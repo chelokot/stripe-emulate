@@ -220,6 +220,7 @@ type Repository interface {
 	ListEvents(ctx context.Context, filter EventFilter) ([]Event, error)
 
 	CreateDeliveryAttempt(ctx context.Context, attempt DeliveryAttempt) (DeliveryAttempt, error)
+	UpdateDeliveryAttempt(ctx context.Context, attempt DeliveryAttempt) (DeliveryAttempt, error)
 	ListDeliveryAttempts(ctx context.Context, filter DeliveryAttemptFilter) ([]DeliveryAttempt, error)
 
 	CreateAuditEntry(ctx context.Context, entry AuditEntry) (AuditEntry, error)

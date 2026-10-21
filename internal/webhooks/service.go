@@ -551,10 +551,19 @@ func (s *Service) recordSimulatedAttempt(ctx context.Context, endpoint Endpoint,
 }
 
 func (s *Service) deliverAttempt(ctx context.Context, endpoint Endpoint, attempt DeliveryAttempt) (DeliveryAttempt, error) {
+	attempt = s.send(ctx, endpoint, attempt)
+	if attempt.Status == StatusSucceeded {
+		return s.createDeliveryAttempt(ctx, attempt)
+	}
+	return s.recordRetryWith(ctx, endpoint, attempt, s.createDeliveryAttempt)
+}
+
+// send posts the attempt to the endpoint and records the response on it.
+func (s *Service) send(ctx context.Context, endpoint Endpoint, attempt DeliveryAttempt) DeliveryAttempt {
 	if err := s.acquireDeliverySlot(ctx); err != nil {
 		attempt.Status = StatusFailed
 		attempt.Error = err.Error()
-		return s.recordRetry(ctx, endpoint, attempt)
+		return attempt
 	}
 	defer s.releaseDeliverySlot()
 
@@ -562,7 +571,7 @@ func (s *Service) deliverAttempt(ctx context.Context, endpoint Endpoint, attempt
 	if err != nil {
 		attempt.Status = StatusFailed
 		attempt.Error = err.Error()
-		return s.recordRetry(ctx, endpoint, attempt)
+		return attempt
 	}
 	for key, value := range attempt.RequestHeaders {
 		req.Header.Set(key, value)
@@ -574,7 +583,7 @@ func (s *Service) deliverAttempt(ctx context.Context, endpoint Endpoint, attempt
 	if err != nil {
 		attempt.Status = StatusFailed
 		attempt.Error = err.Error()
-		return s.recordRetry(ctx, endpoint, attempt)
+		return attempt
 	}
 	defer resp.Body.Close()
 
@@ -583,11 +592,79 @@ func (s *Service) deliverAttempt(ctx context.Context, endpoint Endpoint, attempt
 	attempt.ResponseBody = string(body)
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		attempt.Status = StatusSucceeded
-		return s.createDeliveryAttempt(ctx, attempt)
+		return attempt
 	}
 	attempt.Status = StatusFailed
 	attempt.Error = resp.Status
-	return s.recordRetry(ctx, endpoint, attempt)
+	return attempt
+}
+
+// DeliverDue sends every scheduled attempt whose time has come, retries of
+// failed deliveries and delayed deliveries alike, signing each at send time
+// as Stripe does. A failure schedules the next retry.
+func (s *Service) DeliverDue(ctx context.Context) error {
+	attempts, err := s.repo.ListDeliveryAttempts(ctx, DeliveryAttemptFilter{Status: StatusScheduled})
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	for _, attempt := range attempts {
+		if attempt.ScheduledAt.After(now) {
+			break
+		}
+		endpoint, err := s.repo.GetWebhookEndpoint(ctx, attempt.EndpointID)
+		if err != nil {
+			return err
+		}
+		if !endpoint.Active || endpoint.DeletedAt != nil {
+			attempt.Status = StatusAbandoned
+			attempt.Error = "endpoint disabled"
+			if _, err := s.updateDeliveryAttempt(ctx, attempt); err != nil {
+				return err
+			}
+			continue
+		}
+		if len(attempt.RequestBody) == 0 {
+			event, err := s.repo.GetEvent(ctx, attempt.EventID)
+			if err != nil {
+				return err
+			}
+			if event, err = s.ensureEventRawPayload(event); err != nil {
+				return err
+			}
+			attempt.RequestBody = event.RawPayload
+		}
+		if attempt.Metadata["signature_mismatch"] != "true" {
+			attempt.RequestHeaders = map[string]string{
+				SignatureHeaderName: SignatureHeader(endpoint.Secret, s.now(), attempt.RequestBody),
+				"Content-Type":      "application/json",
+			}
+		}
+		attempt = s.send(ctx, endpoint, attempt)
+		if attempt.Status == StatusSucceeded {
+			_, err = s.updateDeliveryAttempt(ctx, attempt)
+		} else {
+			_, err = s.recordRetryWith(ctx, endpoint, attempt, s.updateDeliveryAttempt)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunScheduler calls DeliverDue every interval until ctx is done.
+func (s *Service) RunScheduler(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = s.DeliverDue(ctx)
+		}
+	}
 }
 
 func (s *Service) acquireDeliverySlot(ctx context.Context) error {
@@ -613,18 +690,24 @@ func (s *Service) releaseDeliverySlot() {
 }
 
 func (s *Service) recordRetry(ctx context.Context, endpoint Endpoint, attempt DeliveryAttempt) (DeliveryAttempt, error) {
+	return s.recordRetryWith(ctx, endpoint, attempt, s.createDeliveryAttempt)
+}
+
+// recordRetryWith saves the failed attempt with save and schedules the next
+// one, or abandons the delivery once the endpoint's attempts are used up.
+func (s *Service) recordRetryWith(ctx context.Context, endpoint Endpoint, attempt DeliveryAttempt, save func(context.Context, DeliveryAttempt) (DeliveryAttempt, error)) (DeliveryAttempt, error) {
 	maxAttempts := endpoint.RetryMaxAttempts
 	if maxAttempts == 0 {
 		maxAttempts = 5
 	}
 	if attempt.AttemptNumber >= maxAttempts {
 		attempt.Status = StatusAbandoned
-		return s.createDeliveryAttempt(ctx, attempt)
+		return save(ctx, attempt)
 	}
 
-	nextRetry := attempt.ScheduledAt.Add(DefaultBackoff(endpoint, attempt.AttemptNumber))
+	nextRetry := s.now().Add(DefaultBackoff(endpoint, attempt.AttemptNumber))
 	attempt.NextRetryAt = &nextRetry
-	created, err := s.createDeliveryAttempt(ctx, attempt)
+	created, err := save(ctx, attempt)
 	if err != nil {
 		return DeliveryAttempt{}, err
 	}
@@ -656,6 +739,14 @@ func (s *Service) createDeliveryAttempt(ctx context.Context, attempt DeliveryAtt
 		stored.RequestBody = nil
 	}
 	return s.repo.CreateDeliveryAttempt(ctx, stored)
+}
+
+func (s *Service) updateDeliveryAttempt(ctx context.Context, attempt DeliveryAttempt) (DeliveryAttempt, error) {
+	stored := attempt
+	if !s.storeRawPayloads {
+		stored.RequestBody = nil
+	}
+	return s.repo.UpdateDeliveryAttempt(ctx, stored)
 }
 
 func (s *Service) audit(ctx context.Context, action, targetType, targetID string, metadata map[string]string) error {
