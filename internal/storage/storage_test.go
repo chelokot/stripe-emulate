@@ -115,11 +115,11 @@ func TestCheckoutSessionMetadataDefaultAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateCustomer: %v", err)
 	}
-	product, err := service.CreateProduct(ctx, billing.Product{ID: "prod_meta", Name: "Meta"})
+	product, err := service.CreateProduct(ctx, billing.Product{ID: "prod_meta", Name: "Meta", Active: true})
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
-	price, err := service.CreatePrice(ctx, billing.Price{ID: "price_meta", ProductID: product.ID, Currency: "usd", UnitAmount: 1500})
+	price, err := service.CreatePrice(ctx, billing.Price{ID: "price_meta", ProductID: product.ID, Currency: "usd", UnitAmount: 1500, Active: true})
 	if err != nil {
 		t.Fatalf("CreatePrice: %v", err)
 	}
@@ -251,11 +251,11 @@ func TestUpdateInvoicePaymentRejectsStaleOpenAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateCustomer: %v", err)
 	}
-	product, err := service.CreateProduct(ctx, billing.Product{ID: "prod_guard", Name: "Guard"})
+	product, err := service.CreateProduct(ctx, billing.Product{ID: "prod_guard", Name: "Guard", Active: true})
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
-	price, err := service.CreatePrice(ctx, billing.Price{ID: "price_guard", ProductID: product.ID, Currency: "usd", UnitAmount: 4900})
+	price, err := service.CreatePrice(ctx, billing.Price{ID: "price_guard", ProductID: product.ID, Currency: "usd", UnitAmount: 4900, Active: true})
 	if err != nil {
 		t.Fatalf("CreatePrice: %v", err)
 	}

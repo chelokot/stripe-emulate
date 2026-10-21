@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1629,7 +1631,7 @@ func (h *Handler) handleCheckoutSessions(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		mode := p.stringDefault("mode", "subscription")
-		lineItems, err := h.resolveCheckoutLineItems(r.Context(), p, mode)
+		lineItems, err := h.resolveCheckoutLineItems(r.Context(), p)
 		if err != nil {
 			writeResult(w, nil, err)
 			return
@@ -1832,11 +1834,15 @@ func (h *Handler) handleCheckoutSessionLineItems(w http.ResponseWriter, r *http.
 		}
 		amount := int64(0)
 		currency := "usd"
+		var description any
 		var priceObject map[string]any
 		if price, priceErr := h.billing.GetPrice(r.Context(), item.PriceID); priceErr == nil {
 			amount = price.UnitAmount * quantity
 			currency = price.Currency
 			priceObject = stripePrice(price)
+			if product, productErr := h.billing.GetProduct(r.Context(), price.ProductID); productErr == nil {
+				description = product.Name
+			}
 		} else {
 			priceObject = map[string]any{
 				"id":          item.PriceID,
@@ -1846,20 +1852,20 @@ func (h *Handler) handleCheckoutSessionLineItems(w http.ResponseWriter, r *http.
 				"livemode":    false,
 			}
 		}
+		lineItemID := sha256.Sum256([]byte(fmt.Sprintf("%s/%d", session.ID, idx)))
 		data = append(data, map[string]any{
-			"id":              fmt.Sprintf("li_%s_%d", session.ID, idx),
-			"object":          "item",
-			"currency":        strings.ToLower(currency),
-			"quantity":        quantity,
-			"amount_subtotal": amount,
-			"amount_total":    amount,
-			"amount_discount": 0,
-			"amount_tax":      0,
-			"description":     nil,
-			"price":           priceObject,
-			"discounts":       []map[string]any{},
-			"taxes":           []map[string]any{},
-			"metadata":        map[string]string{},
+			"id":                  "li_" + hex.EncodeToString(lineItemID[:12]),
+			"object":              "item",
+			"adjustable_quantity": nil,
+			"currency":            strings.ToLower(currency),
+			"quantity":            quantity,
+			"amount_subtotal":     amount,
+			"amount_total":        amount,
+			"amount_discount":     0,
+			"amount_tax":          0,
+			"description":         description,
+			"price":               priceObject,
+			"metadata":            map[string]string{},
 		})
 	}
 	writeJSON(w, http.StatusOK, stripeListFromRequest(r, data))
@@ -6928,8 +6934,8 @@ func (p params) productDataMetadata(idx int) map[string]string {
 	return out
 }
 
-// resolveCheckoutLineItems builds line items from price IDs and/or price_data (payment mode).
-func (h *Handler) resolveCheckoutLineItems(ctx context.Context, p params, mode string) ([]billing.LineItem, error) {
+// resolveCheckoutLineItems builds line items from price IDs and/or price_data.
+func (h *Handler) resolveCheckoutLineItems(ctx context.Context, p params) ([]billing.LineItem, error) {
 	indexes := p.lineItemIndexes()
 	if len(indexes) == 0 && p.has("price") {
 		return p.lineItems(), nil
@@ -6952,10 +6958,6 @@ func (h *Handler) resolveCheckoutLineItems(ctx context.Context, p params, mode s
 		if !p.hasPriceData(idx) {
 			continue
 		}
-		if mode != "payment" {
-			// Should have been rejected in validation; keep defensive.
-			return nil, unknownParam(fmt.Sprintf("line_items[%d][price_data]", idx))
-		}
 		created, err := h.createPriceFromCheckoutPriceData(ctx, p, idx)
 		if err != nil {
 			return nil, err
@@ -6975,7 +6977,6 @@ func (h *Handler) createPriceFromCheckoutPriceData(ctx context.Context, p params
 		product, err := h.billing.CreateProduct(ctx, billing.Product{
 			Name:        p.string(prefix + "[product_data][name]"),
 			Description: p.string(prefix + "[product_data][description]"),
-			Active:      true,
 			Metadata:    p.productDataMetadata(idx),
 		})
 		if err != nil {
@@ -7001,15 +7002,16 @@ func (h *Handler) createPriceFromCheckoutPriceData(ctx context.Context, p params
 
 	meta := map[string]string{}
 	if taxBehavior := p.string(prefix + "[tax_behavior]"); taxBehavior != "" {
-		meta["tax_behavior"] = taxBehavior
+		meta[billing.MetadataTaxBehavior] = taxBehavior
 	}
 
 	return h.billing.CreatePrice(ctx, billing.Price{
-		ProductID:  productID,
-		Currency:   p.stringDefault(prefix+"[currency]", "usd"),
-		UnitAmount: unitAmount,
-		Active:     true,
-		Metadata:   meta,
+		ProductID:              productID,
+		Currency:               p.stringDefault(prefix+"[currency]", "usd"),
+		UnitAmount:             unitAmount,
+		RecurringInterval:      p.string(prefix + "[recurring][interval]"),
+		RecurringIntervalCount: int(p.int64Default(prefix+"[recurring][interval_count]", 1)),
+		Metadata:               meta,
 	})
 }
 
@@ -7420,19 +7422,27 @@ func paymentMethodFingerprint(paymentMethodID string) string {
 
 func stripeProduct(product billing.Product) map[string]any {
 	return map[string]any{
-		"id":            product.ID,
-		"object":        billing.ObjectProduct,
-		"active":        product.Active,
-		"created":       unix(product.CreatedAt),
-		"created_at":    product.CreatedAt,
-		"default_price": product.Metadata["default_price"],
-		"description":   product.Description,
-		"images":        []string{},
-		"livemode":      false,
-		"metadata":      nonNilMap(product.Metadata),
-		"name":          product.Name,
-		"type":          "service",
-		"updated":       unix(product.CreatedAt),
+		"id":                   product.ID,
+		"object":               billing.ObjectProduct,
+		"active":               product.Active,
+		"attributes":           []string{},
+		"created":              unix(product.CreatedAt),
+		"default_price":        nil,
+		"description":          emptyToNil(product.Description),
+		"images":               []string{},
+		"livemode":             false,
+		"marketing_features":   []any{},
+		"metadata":             publicMetadata(product.Metadata),
+		"name":                 product.Name,
+		"package_dimensions":   nil,
+		"shippable":            nil,
+		"statement_descriptor": nil,
+		"tax_code":             nil,
+		"tax_details":          nil,
+		"type":                 "service",
+		"unit_label":           nil,
+		"updated":              unix(product.CreatedAt),
+		"url":                  nil,
 	}
 }
 
@@ -7448,30 +7458,33 @@ func stripePrice(price billing.Price) map[string]any {
 	var recurring any
 	if price.RecurringInterval != "" {
 		recurring = map[string]any{
-			"interval":       price.RecurringInterval,
-			"interval_count": price.RecurringIntervalCount,
-			"usage_type":     "licensed",
+			"interval":          price.RecurringInterval,
+			"interval_count":    price.RecurringIntervalCount,
+			"meter":             nil,
+			"trial_period_days": nil,
+			"usage_type":        "licensed",
 		}
 	}
 	return map[string]any{
-		"id":                       price.ID,
-		"object":                   billing.ObjectPrice,
-		"active":                   price.Active,
-		"billing_scheme":           "per_unit",
-		"created":                  unix(price.CreatedAt),
-		"created_at":               price.CreatedAt,
-		"currency":                 strings.ToLower(price.Currency),
-		"livemode":                 false,
-		"lookup_key":               priceLookupKey(price),
-		"metadata":                 nonNilMap(price.Metadata),
-		"product":                  price.ProductID,
-		"recurring":                recurring,
-		"recurring_interval":       price.RecurringInterval,
-		"recurring_interval_count": price.RecurringIntervalCount,
-		"tax_behavior":             "unspecified",
-		"type":                     priceSearchType(price),
-		"unit_amount":              price.UnitAmount,
-		"unit_amount_decimal":      strconv.FormatInt(price.UnitAmount, 10),
+		"id":                  price.ID,
+		"object":              billing.ObjectPrice,
+		"active":              price.Active,
+		"billing_scheme":      "per_unit",
+		"created":             unix(price.CreatedAt),
+		"currency":            strings.ToLower(price.Currency),
+		"custom_unit_amount":  nil,
+		"livemode":            false,
+		"lookup_key":          emptyToNil(priceLookupKey(price)),
+		"metadata":            publicMetadata(price.Metadata),
+		"nickname":            nil,
+		"product":             price.ProductID,
+		"recurring":           recurring,
+		"tax_behavior":        stringDefault(price.Metadata[billing.MetadataTaxBehavior], "unspecified"),
+		"tiers_mode":          nil,
+		"transform_quantity":  nil,
+		"type":                priceSearchType(price),
+		"unit_amount":         price.UnitAmount,
+		"unit_amount_decimal": strconv.FormatInt(price.UnitAmount, 10),
 	}
 }
 
@@ -7888,46 +7901,121 @@ func (h *Handler) stripeCheckoutSession(r *http.Request, session billing.Checkou
 			"promotion_code": emptyToNil(discount.PromotionCodeID),
 		})
 	}
-	return map[string]any{
-		"id":                    session.ID,
-		"object":                billing.ObjectCheckoutSession,
-		"customer":              session.CustomerID,
-		"mode":                  session.Mode,
-		"line_items":            nil,
-		"success_url":           session.SuccessURL,
-		"cancel_url":            session.CancelURL,
-		"allow_promotion_codes": session.AllowPromotionCodes,
-		"trial_period_days":     session.TrialPeriodDays,
-		// Stripe always includes client_reference_id (string | null).
-		"client_reference_id": emptyToNil(session.ClientReferenceID),
-		// Session-level metadata is independent of payment_intent_data[metadata].
-		"metadata":        nonNilMap(session.Metadata),
-		"url":             session.URL,
-		"status":          session.Status,
-		"payment_status":  session.PaymentStatus,
-		"subscription":    emptyToNil(session.SubscriptionID),
-		"invoice":         emptyToNil(session.InvoiceID),
-		"payment_intent":  emptyToNil(session.PaymentIntentID),
-		"created":         unix(session.CreatedAt),
-		"created_at":      session.CreatedAt,
-		"completed_at":    session.CompletedAt,
-		"livemode":        false,
-		"currency":        strings.ToLower(currency),
-		"amount_subtotal": subtotal,
-		"amount_total":    amountTotal,
+	paymentMethodCollection, customerCreation := "always", any("always")
+	if session.Mode == "payment" {
+		paymentMethodCollection, customerCreation = "if_required", "if_required"
+	}
+	var customerDetails, savedPaymentMethodOptions any
+	if session.CustomerID != "" {
+		customerCreation = nil
+		savedPaymentMethodOptions = map[string]any{"allow_redisplay_filters": []string{"always"}, "payment_method_remove": "disabled", "payment_method_save": nil}
+		if customer, err := h.billing.GetCustomer(ctx, session.CustomerID); err == nil {
+			customerDetails = map[string]any{
+				"address":         nil,
+				"business_name":   nil,
+				"email":           emptyToNil(customer.Email),
+				"individual_name": nil,
+				"name":            emptyToNil(customer.Name),
+				"phone":           emptyToNil(customer.Phone),
+				"tax_exempt":      "none",
+				"tax_ids":         nil,
+			}
+		}
+	}
+	out := map[string]any{
+		"id":                           session.ID,
+		"object":                       billing.ObjectCheckoutSession,
+		"adaptive_pricing":             map[string]any{"enabled": false},
+		"after_expiration":             nil,
+		"allow_promotion_codes":        trueOrNil(session.AllowPromotionCodes),
+		"allowed_payment_method_types": nil,
+		"amount_subtotal":              subtotal,
+		"amount_total":                 amountTotal,
+		"automatic_tax":                stripeCheckoutAutomaticTax(session.AutomaticTax),
+		"billing_address_collection":   nil,
+		"branding_settings": map[string]any{
+			"background_color": "#ffffff",
+			"border_style":     "rounded",
+			"button_color":     "#0074d4",
+			"display_name":     "stripe-emulate",
+			"font_family":      "default",
+			"icon":             nil,
+			"logo":             nil,
+		},
+		"cancel_url":                           emptyToNil(session.CancelURL),
+		"client_reference_id":                  emptyToNil(session.ClientReferenceID),
+		"client_secret":                        nil,
+		"collected_information":                map[string]any{"business_name": nil, "individual_name": nil, "shipping_details": nil},
+		"consent":                              nil,
+		"consent_collection":                   nil,
+		"created":                              unix(session.CreatedAt),
+		"currency":                             strings.ToLower(currency),
+		"currency_conversion":                  nil,
+		"custom_fields":                        []any{},
+		"custom_text":                          map[string]any{"after_submit": nil, "shipping_address": nil, "submit": nil, "terms_of_service_acceptance": nil},
+		"customer":                             emptyToNil(session.CustomerID),
+		"customer_account":                     nil,
+		"customer_creation":                    customerCreation,
+		"customer_details":                     customerDetails,
+		"customer_email":                       nil,
+		"discounts":                            discountRefs,
+		"expires_at":                           session.CreatedAt.Add(24 * time.Hour).Unix(),
+		"integration_identifier":               nil,
+		"invoice":                              emptyToNil(session.InvoiceID),
+		"invoice_creation":                     stripeCheckoutInvoiceCreation(session),
+		"livemode":                             false,
+		"locale":                               nil,
+		"managed_payments":                     map[string]any{"enabled": false},
+		"marketing_attributions":               nil,
+		"metadata":                             publicMetadata(session.Metadata),
+		"mode":                                 session.Mode,
+		"origin_context":                       nil,
+		"payment_intent":                       emptyToNil(session.PaymentIntentID),
+		"payment_link":                         nil,
+		"payment_method_collection":            paymentMethodCollection,
+		"payment_method_configuration_details": map[string]any{"id": "pmc_emulatorDefault", "parent": nil},
+		"payment_method_options":               map[string]any{"card": map[string]any{"request_three_d_secure": "automatic"}},
+		"payment_method_types":                 []string{"card"},
+		"payment_status":                       session.PaymentStatus,
+		"permissions":                          nil,
+		"phone_number_collection":              map[string]any{"enabled": false},
+		"recovered_from":                       nil,
+		"saved_payment_method_options":         savedPaymentMethodOptions,
+		"setup_intent":                         nil,
+		"shipping_address_collection":          nil,
+		"shipping_cost":                        nil,
+		"shipping_options":                     []any{},
+		"status":                               session.Status,
+		"submit_type":                          nil,
+		"subscription":                         emptyToNil(session.SubscriptionID),
+		"success_url":                          session.SuccessURL,
 		"total_details": map[string]any{
 			"amount_discount": discountAmount,
 			"amount_shipping": 0,
 			"amount_tax":      amountTax,
 		},
-		"discounts":     discountRefs,
-		"automatic_tax": stripeCheckoutAutomaticTax(session.AutomaticTax),
-		"tax_id_collection": map[string]any{
-			"enabled":  session.TaxIDCollection,
-			"required": "never",
-		},
-		"invoice_creation": stripeCheckoutInvoiceCreation(session),
+		"ui_mode":        "hosted",
+		"url":            openSessionURL(session),
+		"wallet_options": nil,
 	}
+	if session.TaxIDCollection {
+		out["tax_id_collection"] = map[string]any{"enabled": true, "required": "never"}
+	}
+	return out
+}
+
+func openSessionURL(session billing.CheckoutSession) any {
+	if session.Status != "open" {
+		return nil
+	}
+	return session.URL
+}
+
+func trueOrNil(value bool) any {
+	if value {
+		return true
+	}
+	return nil
 }
 
 // Stripe returns invoice_creation only for payment mode (null otherwise).

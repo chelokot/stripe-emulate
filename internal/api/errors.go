@@ -49,6 +49,10 @@ func stripeErrorFor(status int, err error) stripeAPIError {
 			Code:    validationErr.Code,
 		}
 	}
+	var invalidRequestErr *billing.InvalidRequestError
+	if errors.As(err, &invalidRequestErr) {
+		return stripeAPIError{Type: stripeErrorInvalidReq, Message: invalidRequestErr.Message}
+	}
 	var notFoundErr *billing.NotFoundError
 	if errors.As(err, &notFoundErr) {
 		return stripeAPIError{

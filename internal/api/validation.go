@@ -795,7 +795,6 @@ func validateCheckoutSessionCreate(p params) error {
 			checkoutLineTaxRatesRE,
 			discountParamRE,
 		},
-		RequiredAny:   [][]string{{"customer", "customer_id"}},
 		AllowMetadata: true,
 		Int64Params:   []string{"subscription_data[trial_period_days]"},
 		BoolParams:    []string{"allow_promotion_codes", "automatic_tax[enabled]", "tax_id_collection[enabled]", "invoice_creation[enabled]"},
@@ -819,7 +818,10 @@ func validateCheckoutSessionCreate(p params) error {
 	}
 	lineItemIndexes := p.lineItemIndexes()
 	if len(lineItemIndexes) == 0 && !p.has("price") {
-		return missingParam("line_items")
+		return &validationError{Message: fmt.Sprintf("The `line_items` parameter is required in %s mode.", mode)}
+	}
+	if !p.hasAny("customer", "customer_id") {
+		return missingParam("customer")
 	}
 	if _, err := p.checkoutLineTaxRateIDs(mode); err != nil {
 		return err
@@ -846,9 +848,11 @@ func validateCheckoutSessionCreate(p params) error {
 			}
 			continue
 		}
-		// subscription mode: price required when quantity is present; price_data stays unknown-style reject.
 		if hasPriceData {
-			return unknownParam(fmt.Sprintf("line_items[%d][price_data]", idx))
+			if err := validateCheckoutPriceData(p, idx, mode); err != nil {
+				return err
+			}
+			continue
 		}
 		if p.has(quantityKey) && !hasPrice {
 			return missingParam(priceKey)

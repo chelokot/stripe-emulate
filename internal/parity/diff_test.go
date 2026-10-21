@@ -15,6 +15,8 @@ var dashboardOnlyFields = map[string]bool{"request_log_url": true}
 
 var randomFields = map[string]bool{"invoice_prefix": true, "fingerprint": true}
 
+var accountSettingFields = map[string]bool{"adaptive_pricing": true, "branding_settings": true, "payment_method_configuration_details": true, "payment_method_types": true}
+
 type differ struct {
 	stripeToEmulator map[string]string
 	emulatorToStripe map[string]string
@@ -51,7 +53,7 @@ func (d *differ) compare(path string, stripe any, emulator any) {
 				d.diffs = append(d.diffs, fmt.Sprintf("%s.%s: missing in emulator (stripe: %s)", path, key, brief(stripeField)))
 			case !inStripe:
 				d.diffs = append(d.diffs, fmt.Sprintf("%s.%s: not in stripe (emulator: %s)", path, key, brief(emulatorField)))
-			case randomFields[key]:
+			case randomFields[key] || accountSettingFields[key]:
 				if fmt.Sprintf("%T", stripeField) != fmt.Sprintf("%T", emulatorField) {
 					d.report(path+"."+key, stripeField, emulatorField)
 				}

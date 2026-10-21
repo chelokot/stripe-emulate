@@ -33,6 +33,7 @@ const (
 const (
 	MetadataDefaultPaymentMethod        = "emulator_default_payment_method"
 	MetadataTestClock                   = "emulator_test_clock"
+	MetadataTaxBehavior                 = "emulator_tax_behavior"
 	InternalMetadataPrefix              = "emulator_"
 	MetadataPaymentMethodsFixture       = "emulator_payment_methods_fixture"
 	MetadataPaymentMethodIDs            = "emulator_payment_method_ids"

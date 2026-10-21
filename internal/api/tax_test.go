@@ -391,9 +391,8 @@ func TestCheckoutWithoutAutomaticTaxKeepsZeroTax(t *testing.T) {
 	if !ok || autoTax["enabled"] != false || autoTax["status"] != nil || autoTax["provider"] != nil || autoTax["liability"] != nil {
 		t.Fatalf("automatic_tax = %#v, want disabled v22 shape", session["automatic_tax"])
 	}
-	taxIDCollection, ok := session["tax_id_collection"].(map[string]any)
-	if !ok || taxIDCollection["enabled"] != false || taxIDCollection["required"] != "never" {
-		t.Fatalf("tax_id_collection = %#v, want disabled required never", session["tax_id_collection"])
+	if _, ok := session["tax_id_collection"]; ok {
+		t.Fatalf("tax_id_collection = %#v, want it omitted like Stripe when not requested", session["tax_id_collection"])
 	}
 
 	sessionID := fmt.Sprint(session["id"])

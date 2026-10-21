@@ -33,6 +33,18 @@ func (e *NotFoundError) Unwrap() error {
 	return ErrNotFound
 }
 
+type InvalidRequestError struct {
+	Message string
+}
+
+func (e *InvalidRequestError) Error() string {
+	return e.Message
+}
+
+func (e *InvalidRequestError) Unwrap() error {
+	return ErrInvalidInput
+}
+
 const (
 	MetadataDiscountCouponID        = "emulator_discount_coupon"
 	MetadataDiscountPromotionCodeID = "emulator_discount_promotion_code"
@@ -207,9 +219,6 @@ func (s *Service) CreateProduct(ctx context.Context, in Product) (Product, error
 		in.ID = id("prod")
 	}
 	in.Object = ObjectProduct
-	if !in.Active {
-		in.Active = true
-	}
 	if in.CreatedAt.IsZero() {
 		in.CreatedAt = s.now()
 	}
@@ -254,9 +263,6 @@ func (s *Service) CreatePrice(ctx context.Context, in Price) (Price, error) {
 		in.ID = id("price")
 	}
 	in.Object = ObjectPrice
-	if !in.Active {
-		in.Active = true
-	}
 	if in.CreatedAt.IsZero() {
 		in.CreatedAt = s.now()
 	}
@@ -439,7 +445,7 @@ func (s *Service) CreateCheckoutSession(ctx context.Context, in CheckoutSession)
 	now := s.now()
 	in.Discounts = normalizeDiscounts(in.Discounts, now)
 	if strings.TrimSpace(in.ID) == "" {
-		in.ID = id("cs")
+		in.ID = id("cs_test")
 	}
 	in.Object = ObjectCheckoutSession
 	in.URL = "/checkout/" + in.ID
@@ -473,8 +479,8 @@ func (s *Service) ExpireCheckoutSession(ctx context.Context, sessionID string) (
 	if err != nil {
 		return CheckoutSession{}, err
 	}
-	if strings.ToLower(strings.TrimSpace(session.Status)) != "open" {
-		return CheckoutSession{}, fmt.Errorf("%w: status must be open", ErrInvalidInput)
+	if session.Status != "open" {
+		return CheckoutSession{}, &InvalidRequestError{Message: fmt.Sprintf("Only Checkout Sessions with a status in [\"open\"] can be expired. This Checkout Session has a status of `%s`.", session.Status)}
 	}
 	at := s.now()
 	session.Status = "expired"

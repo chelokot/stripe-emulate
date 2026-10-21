@@ -35,12 +35,12 @@ func (h *Handler) serveWithIdempotency(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		h.mux.ServeHTTP(w, r)
+		h.serveExpanded(w, r)
 		return
 	}
 	key := strings.TrimSpace(r.Header.Get(idempotencyKeyHeader))
 	if key == "" {
-		h.mux.ServeHTTP(w, r)
+		h.serveExpanded(w, r)
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *Handler) serveWithIdempotency(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := &recordingResponseWriter{ResponseWriter: w, status: http.StatusOK}
-	h.mux.ServeHTTP(rec, r)
+	h.serveExpanded(rec, r)
 	if shouldStoreIdempotentResponse(rec.status) {
 		h.idem.set(key, idempotencyEntry{
 			Fingerprint: fingerprint,

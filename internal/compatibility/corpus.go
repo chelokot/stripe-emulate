@@ -307,9 +307,7 @@ func builtinCorpus() []caseSpec {
 			Expect: Observation{
 				HTTPStatus: http.StatusBadRequest,
 				Error: &ErrorObservation{
-					Type:  "invalid_request_error",
-					Code:  "parameter_missing",
-					Param: "line_items",
+					Type: "invalid_request_error",
 				},
 			},
 		},

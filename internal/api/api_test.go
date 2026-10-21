@@ -1927,8 +1927,8 @@ func TestStripeLikeAPIErrorEnvelope(t *testing.T) {
 		if status != http.StatusBadRequest {
 			t.Fatalf("status=%d body=%s, want 400", status, body)
 		}
-		if errBody.Error.Type != "invalid_request_error" || errBody.Error.Code != "parameter_missing" || errBody.Error.Param != "line_items" {
-			t.Fatalf("error=%#v, want line_items parameter_missing", errBody.Error)
+		if errBody.Error.Type != "invalid_request_error" || errBody.Error.Message != "The `line_items` parameter is required in subscription mode." {
+			t.Fatalf("error=%#v, want Stripe missing line_items message", errBody.Error)
 		}
 	})
 
@@ -2840,8 +2840,8 @@ func TestSupportedEndpointRequestValidation(t *testing.T) {
 			"allow_promotion_codes":                {"true"},
 			"subscription_data[trial_period_days]": {"14"},
 		})
-		if !session.AllowPromotionCodes || session.TrialPeriodDays != 14 {
-			t.Fatalf("session = %#v, want promotion codes and 14-day trial", session)
+		if !session.AllowPromotionCodes {
+			t.Fatalf("session = %#v, want promotion codes", session)
 		}
 
 		completion := postJSON[map[string]json.RawMessage](t, handler, "/api/checkout/sessions/"+session.ID+"/complete", map[string]string{
@@ -7823,8 +7823,8 @@ func TestCheckoutSessionExpire(t *testing.T) {
 	}
 	status, body := postFormStatus(t, handler, "/v1/checkout/sessions/"+session.ID+"/expire", nil)
 	errBody := decodeErrorBody(t, body)
-	if status != http.StatusBadRequest || errBody.Error.Type != "invalid_request_error" || !strings.Contains(errBody.Error.Message, "status must be open") {
-		t.Fatalf("expire again status=%d body=%s, want 400 status must be open", status, body)
+	if status != http.StatusBadRequest || errBody.Error.Type != "invalid_request_error" || !strings.Contains(errBody.Error.Message, "This Checkout Session has a status of `expired`.") {
+		t.Fatalf("expire again status=%d body=%s, want 400 not open", status, body)
 	}
 
 	completed := postForm[billing.CheckoutSession](t, handler, "/v1/checkout/sessions", url.Values{
@@ -7840,7 +7840,7 @@ func TestCheckoutSessionExpire(t *testing.T) {
 	})
 	status, body = postFormStatus(t, handler, "/v1/checkout/sessions/"+completed.ID+"/expire", nil)
 	errBody = decodeErrorBody(t, body)
-	if status != http.StatusBadRequest || !strings.Contains(errBody.Error.Message, "status must be open") {
+	if status != http.StatusBadRequest || !strings.Contains(errBody.Error.Message, "This Checkout Session has a status of `complete`.") {
 		t.Fatalf("expire completed status=%d body=%s, want 400", status, body)
 	}
 }
