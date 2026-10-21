@@ -21,6 +21,16 @@ Or with Docker:
 docker build -t stripe-emulate . && docker run -p 8080:8080 stripe-emulate
 ```
 
+## Parity
+
+`internal/parity` sends the same requests to Stripe test mode and to the emulator and diffs the responses:
+
+```bash
+STRIPE_PARITY_KEY=sk_test_... go test -run TestParity -v ./internal/parity
+```
+
+Use a key for a dedicated test-mode account: the run creates customers, checkout sessions and invoices there.
+
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
