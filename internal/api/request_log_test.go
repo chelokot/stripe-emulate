@@ -34,7 +34,7 @@ func TestUnknownParamsReportedDeterministically(t *testing.T) {
 		if payload.Error.Code != stripeCodeParamUnknown || payload.Error.Param != "aaa_first" {
 			t.Fatalf("error=%#v, want parameter_unknown param=aaa_first", payload.Error)
 		}
-		if want := "Received unknown parameters: aaa_first, line_items[0][mystery], zzz_last."; payload.Error.Message != want {
+		if want := "Received unknown parameters: aaa_first, line_items[0][mystery], zzz_last"; payload.Error.Message != want {
 			t.Fatalf("message=%q, want %q", payload.Error.Message, want)
 		}
 	}

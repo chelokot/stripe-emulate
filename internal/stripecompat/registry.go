@@ -156,6 +156,7 @@ func DefaultClaims() []Claim {
 		add(method, "/v1/subscriptions", Claim{Level: "L3", Stateful: true, WebhookEvents: []string{"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"}})
 		add(method, "/v1/subscriptions/{id}", Claim{Level: "L3", Stateful: true, WebhookEvents: []string{"customer.subscription.updated", "customer.subscription.deleted"}})
 	}
+	add(http.MethodDelete, "/v1/customers/{id}", statefulL3)
 	add(http.MethodGet, "/v1/customers/search", Claim{Level: "L3", Stateful: true, Risks: []string{"supports a measured customer search subset for id, email, name, and metadata equality clauses joined by AND"}})
 	add(http.MethodGet, "/v1/products/search", Claim{Level: "L2", Risks: []string{"metadata equality filters only; no Stripe Search Query Language parity"}})
 	add(http.MethodDelete, "/v1/products/{id}", Claim{Level: "L3", Stateful: true, Risks: []string{"removes local product evidence; existing prices keep referencing the deleted product id"}})

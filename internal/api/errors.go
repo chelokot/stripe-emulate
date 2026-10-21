@@ -23,6 +23,7 @@ type stripeAPIError struct {
 	Param       string `json:"param,omitempty"`
 	Code        string `json:"code,omitempty"`
 	DeclineCode string `json:"decline_code,omitempty"`
+	DocURL      string `json:"doc_url,omitempty"`
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
@@ -30,6 +31,9 @@ func writeError(w http.ResponseWriter, status int, err error) {
 }
 
 func writeStripeError(w http.ResponseWriter, status int, apiErr stripeAPIError) {
+	if apiErr.Code != "" {
+		apiErr.DocURL = "https://stripe.com/docs/error-codes/" + strings.ReplaceAll(apiErr.Code, "_", "-")
+	}
 	writeJSON(w, status, map[string]any{
 		"error": apiErr,
 	})
@@ -43,6 +47,15 @@ func stripeErrorFor(status int, err error) stripeAPIError {
 			Message: validationErr.Message,
 			Param:   validationErr.Param,
 			Code:    validationErr.Code,
+		}
+	}
+	var notFoundErr *billing.NotFoundError
+	if errors.As(err, &notFoundErr) {
+		return stripeAPIError{
+			Type:    stripeErrorInvalidReq,
+			Message: notFoundErr.Message,
+			Param:   notFoundErr.Param,
+			Code:    "resource_missing",
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -15,25 +16,27 @@ const invoiceItemColumns = `id, customer_id, invoice_id, amount, currency, descr
 
 var _ billing.Repository = (*SQLiteStore)(nil)
 
+const customerColumns = `id, email, name, description, phone, preferred_locales, invoice_prefix, metadata, deleted, created_at`
+
 func (s *SQLiteStore) CreateCustomer(ctx context.Context, c billing.Customer) (billing.Customer, error) {
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO customers (id, email, name, metadata, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, c.ID, c.Email, c.Name, encodeMap(c.Metadata), encodeTime(c.CreatedAt), encodeTime(c.CreatedAt)); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO customers (id, email, name, description, phone, preferred_locales, invoice_prefix, metadata, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, c.ID, c.Email, c.Name, c.Description, c.Phone, encodeStrings(c.PreferredLocales), c.InvoicePrefix, encodeMap(c.Metadata), encodeTime(c.CreatedAt), encodeTime(c.CreatedAt)); err != nil {
 		return billing.Customer{}, err
 	}
 	return s.GetCustomer(ctx, c.ID)
 }
 
 func (s *SQLiteStore) GetCustomer(ctx context.Context, id string) (billing.Customer, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, email, name, metadata, created_at FROM customers WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+customerColumns+` FROM customers WHERE id = ?`, id)
 	c, err := scanCustomer(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return billing.Customer{}, billing.ErrNotFound
+		return billing.Customer{}, &billing.NotFoundError{Message: fmt.Sprintf("No such customer: '%s'", id), Param: "id"}
 	}
 	return c, err
 }
 
 func (s *SQLiteStore) ListCustomers(ctx context.Context) ([]billing.Customer, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, email, name, metadata, created_at FROM customers ORDER BY created_at DESC, id DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+customerColumns+` FROM customers WHERE deleted = 0 ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -49,23 +52,45 @@ func (s *SQLiteStore) ListCustomers(ctx context.Context) ([]billing.Customer, er
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) UpdateCustomer(ctx context.Context, id string, in billing.Customer) (billing.Customer, error) {
+func (s *SQLiteStore) UpdateCustomer(ctx context.Context, id string, in billing.CustomerUpdate) (billing.Customer, error) {
 	current, err := s.GetCustomer(ctx, id)
 	if err != nil {
 		return billing.Customer{}, err
 	}
-	if in.Email != "" {
-		current.Email = in.Email
+	if in.Email != nil {
+		current.Email = *in.Email
 	}
-	if in.Name != "" {
-		current.Name = in.Name
+	if in.Name != nil {
+		current.Name = *in.Name
+	}
+	if in.Description != nil {
+		current.Description = *in.Description
+	}
+	if in.Phone != nil {
+		current.Phone = *in.Phone
+	}
+	if in.PreferredLocales != nil {
+		current.PreferredLocales = *in.PreferredLocales
 	}
 	if in.Metadata != nil {
 		current.Metadata = in.Metadata
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE customers SET email = ?, name = ?, metadata = ?, updated_at = ? WHERE id = ?`,
-		current.Email, current.Name, encodeMap(current.Metadata), encodeTime(time.Now().UTC()), id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE customers SET email = ?, name = ?, description = ?, phone = ?, preferred_locales = ?, metadata = ?, updated_at = ? WHERE id = ?`,
+		current.Email, current.Name, current.Description, current.Phone, encodeStrings(current.PreferredLocales), encodeMap(current.Metadata), encodeTime(time.Now().UTC()), id); err != nil {
 		return billing.Customer{}, err
+	}
+	return s.GetCustomer(ctx, id)
+}
+
+func (s *SQLiteStore) DeleteCustomer(ctx context.Context, id string) (billing.Customer, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE customers SET deleted = 1, updated_at = ? WHERE id = ? AND deleted = 0`, encodeTime(time.Now().UTC()), id)
+	if err != nil {
+		return billing.Customer{}, err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return billing.Customer{}, err
+	} else if affected == 0 {
+		return billing.Customer{}, &billing.NotFoundError{Message: fmt.Sprintf("No such customer: '%s'", id), Param: "id"}
 	}
 	return s.GetCustomer(ctx, id)
 }
@@ -85,7 +110,7 @@ func (s *SQLiteStore) GetProduct(ctx context.Context, id string) (billing.Produc
 	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, active, metadata, created_at FROM products WHERE id = ?`, id)
 	p, err := scanProduct(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return billing.Product{}, billing.ErrNotFound
+		return billing.Product{}, &billing.NotFoundError{Message: fmt.Sprintf("No such product: '%s'", id), Param: "id"}
 	}
 	return p, err
 }
@@ -161,7 +186,7 @@ func (s *SQLiteStore) GetPrice(ctx context.Context, id string) (billing.Price, e
 	row := s.db.QueryRowContext(ctx, `SELECT id, product_id, currency, unit_amount, lookup_key, recurring_interval, recurring_interval_count, active, metadata, created_at FROM prices WHERE id = ?`, id)
 	p, err := scanPrice(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return billing.Price{}, billing.ErrNotFound
+		return billing.Price{}, &billing.NotFoundError{Message: fmt.Sprintf("No such price: '%s'", id), Param: "price"}
 	}
 	return p, err
 }
@@ -481,7 +506,7 @@ func (s *SQLiteStore) GetCheckoutSession(ctx context.Context, id string) (billin
 	row := s.db.QueryRowContext(ctx, `SELECT id, customer_id, mode, line_items, discounts, success_url, cancel_url, status, payment_status, allow_promotion_codes, trial_period_days, automatic_tax, tax_id_collection, tax_percent, default_tax_rates, client_reference_id, payment_intent_data, metadata, subscription_id, invoice_id, payment_intent_id, created_at, completed_at FROM checkout_sessions WHERE id = ?`, id)
 	cs, err := scanCheckoutSession(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return billing.CheckoutSession{}, billing.ErrNotFound
+		return billing.CheckoutSession{}, &billing.NotFoundError{Message: "No such checkout.session: " + id}
 	}
 	return cs, err
 }
@@ -821,7 +846,7 @@ func (s *SQLiteStore) GetInvoice(ctx context.Context, id string) (billing.Invoic
 	row := s.db.QueryRowContext(ctx, `SELECT id, customer_id, subscription_id, status, currency, subtotal, discount_amount, discounts, automatic_tax, tax, total, amount_due, amount_paid, attempt_count, next_payment_attempt, payment_intent_id, metadata, default_tax_rates, created_at FROM invoices WHERE id = ?`, id)
 	inv, err := scanInvoice(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return billing.Invoice{}, billing.ErrNotFound
+		return billing.Invoice{}, &billing.NotFoundError{Message: fmt.Sprintf("No such invoice: '%s'", id), Param: "invoice"}
 	}
 	return inv, err
 }
@@ -1722,11 +1747,14 @@ type scanner interface {
 
 func scanCustomer(row scanner) (billing.Customer, error) {
 	var c billing.Customer
-	var metadata, createdAt string
-	if err := row.Scan(&c.ID, &c.Email, &c.Name, &metadata, &createdAt); err != nil {
+	var preferredLocales, metadata, createdAt string
+	var deleted int
+	if err := row.Scan(&c.ID, &c.Email, &c.Name, &c.Description, &c.Phone, &preferredLocales, &c.InvoicePrefix, &metadata, &deleted, &createdAt); err != nil {
 		return c, err
 	}
 	c.Object = billing.ObjectCustomer
+	c.PreferredLocales = decodeStrings(preferredLocales)
+	c.Deleted = deleted != 0
 	c.Metadata = decodeMap(metadata)
 	c.CreatedAt = decodeTime(createdAt)
 	return c, nil

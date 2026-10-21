@@ -31,7 +31,9 @@ const (
 )
 
 const (
-	MetadataDefaultPaymentMethod        = "default_payment_method"
+	MetadataDefaultPaymentMethod        = "emulator_default_payment_method"
+	MetadataTestClock                   = "emulator_test_clock"
+	InternalMetadataPrefix              = "emulator_"
 	MetadataPaymentMethodsFixture       = "emulator_payment_methods_fixture"
 	MetadataPaymentMethodIDs            = "emulator_payment_method_ids"
 	MetadataPaymentIntentOutcome        = "emulator_payment_intent_outcome"
@@ -43,12 +45,26 @@ const (
 )
 
 type Customer struct {
-	ID        string            `json:"id"`
-	Object    string            `json:"object"`
-	Email     string            `json:"email,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
+	ID               string            `json:"id"`
+	Object           string            `json:"object"`
+	Email            string            `json:"email,omitempty"`
+	Name             string            `json:"name,omitempty"`
+	Description      string            `json:"description,omitempty"`
+	Phone            string            `json:"phone,omitempty"`
+	PreferredLocales []string          `json:"preferred_locales,omitempty"`
+	InvoicePrefix    string            `json:"invoice_prefix,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+	Deleted          bool              `json:"deleted,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
+}
+
+type CustomerUpdate struct {
+	Email            *string
+	Name             *string
+	Description      *string
+	Phone            *string
+	PreferredLocales *[]string
+	Metadata         map[string]string
 }
 
 type Product struct {

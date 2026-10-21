@@ -345,7 +345,7 @@ func (s *Service) upsertCustomer(ctx context.Context, pack Pack, fixture Custome
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
-		metadata["test_clock"] = strings.TrimSpace(fixture.TestClock)
+		metadata[billing.MetadataTestClock] = strings.TrimSpace(fixture.TestClock)
 	}
 	var err error
 	metadata, err = applyCustomerPaymentMethodFixture(metadata, fixture)
@@ -364,11 +364,14 @@ func (s *Service) upsertCustomer(ctx context.Context, pack Pack, fixture Custome
 			}
 			metadata = applyCustomerDefaultPaymentIntentOutcome(metadata, fixture)
 			metadata = applyCustomerDefaultInvoiceOutcome(metadata, fixture)
-			return s.billing.UpdateCustomer(ctx, fixture.ID, billing.Customer{
-				Email:    fixture.Email,
-				Name:     fixture.Name,
-				Metadata: metadata,
-			})
+			update := billing.CustomerUpdate{Metadata: metadata}
+			if fixture.Email != "" {
+				update.Email = &fixture.Email
+			}
+			if fixture.Name != "" {
+				update.Name = &fixture.Name
+			}
+			return s.billing.UpdateCustomer(ctx, fixture.ID, update)
 		}
 		if !errors.Is(err, billing.ErrNotFound) {
 			return billing.Customer{}, err
@@ -548,7 +551,7 @@ func (s *Service) upsertSubscription(ctx context.Context, pack Pack, fixture Sub
 	metadata := fixtureMetadata(fixture.Metadata, pack, ref)
 	if strings.TrimSpace(fixture.TestClock) != "" {
 		metadata = ensureStringMap(metadata)
-		metadata["test_clock"] = strings.TrimSpace(fixture.TestClock)
+		metadata[billing.MetadataTestClock] = strings.TrimSpace(fixture.TestClock)
 	}
 	if strings.TrimSpace(fixture.RenewalOutcome) != "" {
 		metadata = ensureStringMap(metadata)
@@ -720,7 +723,7 @@ func (s *Service) createRefund(ctx context.Context, pack Pack, fixture RefundFix
 	metadata := fixtureMetadata(fixture.Metadata, pack, firstFixtureNonEmpty(fixture.ID, fixture.Charge, fixture.PaymentIntent, fixture.Invoice))
 	if strings.TrimSpace(fixture.TestClock) != "" {
 		metadata = ensureStringMap(metadata)
-		metadata["test_clock"] = strings.TrimSpace(fixture.TestClock)
+		metadata[billing.MetadataTestClock] = strings.TrimSpace(fixture.TestClock)
 	}
 	if settleAt := firstFixtureNonEmpty(fixture.SettleAt, fixture.AvailableOn); settleAt != "" {
 		metadata = ensureStringMap(metadata)

@@ -11,6 +11,10 @@ var stripeIDPattern = regexp.MustCompile(`^((?:[a-z]+_)+)[A-Za-z0-9]{8,}$`)
 
 const minTimestamp = 1_000_000_000
 
+var dashboardOnlyFields = map[string]bool{"request_log_url": true}
+
+var randomFields = map[string]bool{"invoice_prefix": true}
+
 type differ struct {
 	stripeToEmulator map[string]string
 	emulatorToStripe map[string]string
@@ -37,6 +41,9 @@ func (d *differ) compare(path string, stripe any, emulator any) {
 			keys[key] = true
 		}
 		for _, key := range sortedKeys(keys) {
+			if dashboardOnlyFields[key] {
+				continue
+			}
 			stripeField, inStripe := stripeValue[key]
 			emulatorField, inEmulator := emulatorValue[key]
 			switch {
@@ -44,6 +51,10 @@ func (d *differ) compare(path string, stripe any, emulator any) {
 				d.diffs = append(d.diffs, fmt.Sprintf("%s.%s: missing in emulator (stripe: %s)", path, key, brief(stripeField)))
 			case !inStripe:
 				d.diffs = append(d.diffs, fmt.Sprintf("%s.%s: not in stripe (emulator: %s)", path, key, brief(emulatorField)))
+			case randomFields[key]:
+				if fmt.Sprintf("%T", stripeField) != fmt.Sprintf("%T", emulatorField) {
+					d.report(path+"."+key, stripeField, emulatorField)
+				}
 			default:
 				d.compare(path+"."+key, stripeField, emulatorField)
 			}

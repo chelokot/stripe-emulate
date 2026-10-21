@@ -40,6 +40,8 @@ var (
 	// Item-level tax_rates on subscription_items create: evidence only (not used for totals).
 	taxRatesParamRE           = regexp.MustCompile(`^tax_rates(\[\d*\])?$`)
 	discountParamRE           = regexp.MustCompile(`^discounts\[\d+\]\[(coupon|promotion_code)\]$`)
+	preferredLocalesParamRE   = regexp.MustCompile(`^preferred_locales(\[\d*\])?$`)
+	emailRE                   = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 	subscriptionItemRE        = regexp.MustCompile(`^items\[(\d+)\]\[(id|price|price_id|quantity)\]$`)
 	cancellationDetailsRE     = regexp.MustCompile(`^cancellation_details\[(comment|feedback)\]$`)
 	paymentMethodTypesRE      = regexp.MustCompile(`^payment_method_types(\[[^\]]*\])?$`)
@@ -191,7 +193,7 @@ func unknownParam(param string) *validationError {
 	return &validationError{
 		Param:   param,
 		Code:    stripeCodeParamUnknown,
-		Message: fmt.Sprintf("Received unknown parameter: %s.", param),
+		Message: fmt.Sprintf("Received unknown parameter: %s", param),
 	}
 }
 
@@ -203,7 +205,7 @@ func unknownParams(keys []string) *validationError {
 		return unknownParam(keys[0])
 	}
 	err := unknownParam(keys[0])
-	err.Message = fmt.Sprintf("Received unknown parameters: %s.", strings.Join(keys, ", "))
+	err.Message = fmt.Sprintf("Received unknown parameters: %s", strings.Join(keys, ", "))
 	return err
 }
 
@@ -430,19 +432,32 @@ func (p params) validateUnixTimestampOrNowOrUnchanged(key string) error {
 }
 
 func validateCustomerCreate(p params) error {
-	return p.validate(paramSpec{
-		Allowed:       []string{"id", "email", "name", "test_clock", "coupon", "promotion_code"},
-		AllowedRegex:  []*regexp.Regexp{discountParamRE},
+	if err := p.validate(paramSpec{
+		Allowed:       []string{"id", "email", "name", "description", "phone", "test_clock", "coupon", "promotion_code"},
+		AllowedRegex:  []*regexp.Regexp{discountParamRE, preferredLocalesParamRE},
 		AllowMetadata: true,
-	})
+	}); err != nil {
+		return err
+	}
+	return validateCustomerEmail(p)
 }
 
 func validateCustomerUpdate(p params) error {
-	return p.validate(paramSpec{
-		Allowed:       []string{"email", "name", "test_clock", "coupon", "promotion_code", "invoice_settings[default_payment_method]"},
-		AllowedRegex:  []*regexp.Regexp{discountParamRE},
+	if err := p.validate(paramSpec{
+		Allowed:       []string{"email", "name", "description", "phone", "test_clock", "coupon", "promotion_code", "invoice_settings[default_payment_method]"},
+		AllowedRegex:  []*regexp.Regexp{discountParamRE, preferredLocalesParamRE},
 		AllowMetadata: true,
-	})
+	}); err != nil {
+		return err
+	}
+	return validateCustomerEmail(p)
+}
+
+func validateCustomerEmail(p params) error {
+	if email := p.string("email"); email != "" && !emailRE.MatchString(email) {
+		return &validationError{Param: "email", Code: "email_invalid", Message: "Invalid email address: " + email}
+	}
+	return nil
 }
 
 func validateCustomerSearch(p params) error {

@@ -198,7 +198,7 @@ func (h *Handler) handleCustomerDiscount(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusOK, h.stripeDiscount(discounts[0], customer.ID, "", ""))
 	case http.MethodDelete:
 		customer.Metadata = billing.ClearDiscountMetadata(copyStringMap(customer.Metadata))
-		updated, err := h.billing.UpdateCustomer(r.Context(), customer.ID, billing.Customer{Metadata: customer.Metadata})
+		updated, err := h.billing.UpdateCustomer(r.Context(), customer.ID, billing.CustomerUpdate{Metadata: customer.Metadata})
 		if err == nil {
 			h.emitGenericWebhook(r, "customer.discount.deleted", discounts[0].ID, h.stripeDiscount(discounts[0], updated.ID, "", ""), webhooks.SourceAPI)
 		}

@@ -3403,9 +3403,10 @@ func TestBillingPortalSessionActionsEmitWebhooks(t *testing.T) {
 			DefaultPaymentMethod *string `json:"default_payment_method"`
 		} `json:"invoice_settings"`
 	}](t, handler, "/v1/customers", url.Values{
-		"id":         {"cus_portal_flow"},
-		"email":      {"portal-flow@example.test"},
-		"test_clock": {"clock_portal"},
+		"id":                {"cus_portal_flow"},
+		"email":             {"portal-flow@example.test"},
+		"test_clock":        {"clock_portal"},
+		"metadata[segment]": {"portal"},
 	})
 	product := postForm[billing.Product](t, handler, "/v1/products", url.Values{"name": {"Portal Flow"}})
 	price := postForm[billing.Price](t, handler, "/v1/prices", url.Values{
@@ -3523,8 +3524,8 @@ func TestBillingPortalSessionActionsEmitWebhooks(t *testing.T) {
 	filteredEvents := getJSON[struct {
 		Data []webhooks.Event `json:"data"`
 	}](t, handler, "/v1/events?"+url.Values{
-		"type": {"customer.updated"},
-		"data.object.metadata[default_payment_method]": {"pm_card_visa"},
+		"type":                          {"customer.updated"},
+		"data.object.metadata[segment]": {"portal"},
 	}.Encode())
 	if len(filteredEvents.Data) != 1 || filteredEvents.Data[0].Type != "customer.updated" {
 		t.Fatalf("filtered customer.updated events = %#v, want one metadata-filtered event", filteredEvents.Data)
@@ -7943,21 +7944,8 @@ func TestCustomerDefaultPaymentMethodUpdateAndAttach(t *testing.T) {
 			DefaultPaymentMethod *string `json:"default_payment_method"`
 		} `json:"invoice_settings"`
 	}](t, handler, "/v1/customers/"+empty.ID)
-	if afterAttach.InvoiceSettings.DefaultPaymentMethod == nil || *afterAttach.InvoiceSettings.DefaultPaymentMethod != "pm_card_mastercard" {
-		t.Fatalf("after attach default = %#v, want pm_card_mastercard", afterAttach.InvoiceSettings)
-	}
-	_ = postForm[struct {
-		ID string `json:"id"`
-	}](t, handler, "/v1/payment_methods/pm_card_visa/attach", url.Values{
-		"customer": {empty.ID},
-	})
-	afterSecond := getJSON[struct {
-		InvoiceSettings struct {
-			DefaultPaymentMethod *string `json:"default_payment_method"`
-		} `json:"invoice_settings"`
-	}](t, handler, "/v1/customers/"+empty.ID)
-	if afterSecond.InvoiceSettings.DefaultPaymentMethod == nil || *afterSecond.InvoiceSettings.DefaultPaymentMethod != "pm_card_mastercard" {
-		t.Fatalf("second attach overwrote default = %#v", afterSecond.InvoiceSettings)
+	if afterAttach.InvoiceSettings.DefaultPaymentMethod != nil {
+		t.Fatalf("after attach default = %#v, want attach to leave the default unset like Stripe", afterAttach.InvoiceSettings)
 	}
 }
 

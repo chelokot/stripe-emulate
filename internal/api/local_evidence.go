@@ -750,21 +750,14 @@ func (h *Handler) subscriptionAttachedToClock(r *http.Request, subscriptionID st
 	if err != nil {
 		return false
 	}
-	for _, key := range []string{"test_clock", "testClock"} {
-		if strings.TrimSpace(subscription.Metadata[key]) == clockID {
-			return true
-		}
+	if strings.TrimSpace(subscription.Metadata[billing.MetadataTestClock]) == clockID {
+		return true
 	}
 	customer, err := h.billing.GetCustomer(r.Context(), subscription.CustomerID)
 	if err != nil {
 		return false
 	}
-	for _, key := range []string{"test_clock", "testClock"} {
-		if strings.TrimSpace(customer.Metadata[key]) == clockID {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(customer.Metadata[billing.MetadataTestClock]) == clockID
 }
 
 func schedulePhaseItem(schedule map[string]any) (string, int64) {

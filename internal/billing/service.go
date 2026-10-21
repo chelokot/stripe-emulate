@@ -20,6 +20,19 @@ var (
 	ErrUnsupportedOutcome = errors.New("unsupported checkout outcome")
 )
 
+type NotFoundError struct {
+	Message string
+	Param   string
+}
+
+func (e *NotFoundError) Error() string {
+	return e.Message
+}
+
+func (e *NotFoundError) Unwrap() error {
+	return ErrNotFound
+}
+
 const (
 	MetadataDiscountCouponID        = "emulator_discount_coupon"
 	MetadataDiscountPromotionCodeID = "emulator_discount_promotion_code"
@@ -67,7 +80,8 @@ type Repository interface {
 	CreateCustomer(context.Context, Customer) (Customer, error)
 	GetCustomer(context.Context, string) (Customer, error)
 	ListCustomers(context.Context) ([]Customer, error)
-	UpdateCustomer(context.Context, string, Customer) (Customer, error)
+	UpdateCustomer(context.Context, string, CustomerUpdate) (Customer, error)
+	DeleteCustomer(context.Context, string) (Customer, error)
 
 	CreateProduct(context.Context, Product) (Product, error)
 	GetProduct(context.Context, string) (Product, error)
@@ -164,6 +178,7 @@ func (s *Service) CreateCustomer(ctx context.Context, in Customer) (Customer, er
 		in.ID = id("cus")
 	}
 	in.Object = ObjectCustomer
+	in.InvoicePrefix = invoicePrefix()
 	in.CreatedAt = now
 	return s.repo.CreateCustomer(ctx, in)
 }
@@ -176,8 +191,12 @@ func (s *Service) ListCustomers(ctx context.Context) ([]Customer, error) {
 	return s.repo.ListCustomers(ctx)
 }
 
-func (s *Service) UpdateCustomer(ctx context.Context, id string, in Customer) (Customer, error) {
+func (s *Service) UpdateCustomer(ctx context.Context, id string, in CustomerUpdate) (Customer, error) {
 	return s.repo.UpdateCustomer(ctx, id, in)
+}
+
+func (s *Service) DeleteCustomer(ctx context.Context, id string) (Customer, error) {
+	return s.repo.DeleteCustomer(ctx, id)
 }
 
 func (s *Service) CreateProduct(ctx context.Context, in Product) (Product, error) {
@@ -1879,9 +1898,8 @@ func (s *Service) DeleteTestClock(ctx context.Context, clockID string) error {
 			continue
 		}
 		metadata := copyMap(customer.Metadata)
-		delete(metadata, "test_clock")
-		delete(metadata, "testClock")
-		if _, err := s.repo.UpdateCustomer(ctx, customer.ID, Customer{Metadata: metadata}); err != nil {
+		delete(metadata, MetadataTestClock)
+		if _, err := s.repo.UpdateCustomer(ctx, customer.ID, CustomerUpdate{Metadata: metadata}); err != nil {
 			return err
 		}
 	}
@@ -1894,8 +1912,7 @@ func (s *Service) DeleteTestClock(ctx context.Context, clockID string) error {
 			continue
 		}
 		subscription.Metadata = copyMap(subscription.Metadata)
-		delete(subscription.Metadata, "test_clock")
-		delete(subscription.Metadata, "testClock")
+		delete(subscription.Metadata, MetadataTestClock)
 		if _, err := s.repo.UpdateSubscription(ctx, subscription, nil); err != nil {
 			return err
 		}
@@ -1903,15 +1920,8 @@ func (s *Service) DeleteTestClock(ctx context.Context, clockID string) error {
 	return s.repo.DeleteTestClock(ctx, clockID)
 }
 
-// customerReferencesClock reports whether metadata pins the given test clock
-// under either metadata key the runtime accepts.
 func customerReferencesClock(metadata map[string]string, clockID string) bool {
-	for _, key := range []string{"test_clock", "testClock"} {
-		if strings.TrimSpace(metadata[key]) == clockID {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(metadata[MetadataTestClock]) == clockID
 }
 
 func (s *Service) AdvanceTestClock(ctx context.Context, clockID string, frozenTime time.Time) (TestClock, ClockAdvanceResult, error) {
@@ -2691,7 +2701,7 @@ func (s *Service) SimulatePaymentMethodUpdate(ctx context.Context, customerID st
 		customer.Metadata = copyMap(customer.Metadata)
 		customer.Metadata[MetadataDefaultPaymentMethod] = result.PaymentMethodID
 		customer.Metadata["payment_method_status"] = "saved"
-		if _, err := s.repo.UpdateCustomer(ctx, customer.ID, Customer{Metadata: customer.Metadata}); err != nil {
+		if _, err := s.repo.UpdateCustomer(ctx, customer.ID, CustomerUpdate{Metadata: customer.Metadata}); err != nil {
 			return PaymentMethodSimulation{}, err
 		}
 	} else {
@@ -3316,21 +3326,14 @@ func (s *Service) subscriptionAttachedToClock(ctx context.Context, sub Subscript
 	if clockID == "" {
 		return true
 	}
-	for _, key := range []string{"test_clock", "testClock"} {
-		if strings.TrimSpace(sub.Metadata[key]) == clockID {
-			return true
-		}
+	if customerReferencesClock(sub.Metadata, clockID) {
+		return true
 	}
 	customer, err := s.repo.GetCustomer(ctx, sub.CustomerID)
 	if err != nil {
 		return false
 	}
-	for _, key := range []string{"test_clock", "testClock"} {
-		if strings.TrimSpace(customer.Metadata[key]) == clockID {
-			return true
-		}
-	}
-	return false
+	return customerReferencesClock(customer.Metadata, clockID)
 }
 
 func (s *Service) refundAttachedToClock(ctx context.Context, refund Refund, clockID string) bool {
@@ -3338,7 +3341,7 @@ func (s *Service) refundAttachedToClock(ctx context.Context, refund Refund, cloc
 	if clockID == "" {
 		return true
 	}
-	if strings.TrimSpace(refund.Metadata["test_clock"]) == clockID || strings.TrimSpace(refund.Metadata["testClock"]) == clockID {
+	if customerReferencesClock(refund.Metadata, clockID) {
 		return true
 	}
 	if refund.CustomerID == "" {
@@ -3348,7 +3351,7 @@ func (s *Service) refundAttachedToClock(ctx context.Context, refund Refund, cloc
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(customer.Metadata["test_clock"]) == clockID || strings.TrimSpace(customer.Metadata["testClock"]) == clockID
+	return customerReferencesClock(customer.Metadata, clockID)
 }
 
 func (s *Service) settlePendingRefunds(ctx context.Context, at time.Time, testClockID string) ([]Refund, error) {
@@ -4069,6 +4072,18 @@ func normalizePaymentMethodOutcome(outcome string) string {
 func sanitizeID(raw string) string {
 	replacer := strings.NewReplacer("/", "_", ".", "_", " ", "_", ":", "_", "+", "_")
 	return replacer.Replace(raw)
+}
+
+func invoicePrefix() string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	for index := range b {
+		b[index] = alphabet[int(b[index])%len(alphabet)]
+	}
+	return string(b[:])
 }
 
 func id(prefix string) string {

@@ -265,7 +265,7 @@ func (h *Handler) handleCustomers(w http.ResponseWriter, r *http.Request) {
 			if metadata == nil {
 				metadata = map[string]string{}
 			}
-			metadata["test_clock"] = p.string("test_clock")
+			metadata[billing.MetadataTestClock] = p.string("test_clock")
 		}
 		if discounts, err := h.discountsFromParams(p); err != nil {
 			writeResult(w, nil, err)
@@ -274,10 +274,13 @@ func (h *Handler) handleCustomers(w http.ResponseWriter, r *http.Request) {
 			metadata = billing.MergeDiscountMetadata(metadata, discounts)
 		}
 		customer, err := h.billing.CreateCustomer(r.Context(), billing.Customer{
-			ID:       p.string("id"),
-			Email:    p.string("email"),
-			Name:     p.string("name"),
-			Metadata: metadata,
+			ID:               p.string("id"),
+			Email:            p.string("email"),
+			Name:             p.string("name"),
+			Description:      p.string("description"),
+			Phone:            p.string("phone"),
+			PreferredLocales: p.list("preferred_locales"),
+			Metadata:         metadata,
 		})
 		writeResult(w, stripeCustomer(customer), err)
 	case http.MethodGet:
@@ -360,6 +363,10 @@ func (h *Handler) handleCustomer(w http.ResponseWriter, r *http.Request) {
 			}
 			merged := copyStringMap(current.Metadata)
 			for key, value := range metadata {
+				if value == "" {
+					delete(merged, key)
+					continue
+				}
 				merged[key] = value
 			}
 			metadata = merged
@@ -368,7 +375,7 @@ func (h *Handler) handleCustomer(w http.ResponseWriter, r *http.Request) {
 			if metadata == nil {
 				metadata = map[string]string{}
 			}
-			metadata["test_clock"] = p.string("test_clock")
+			metadata[billing.MetadataTestClock] = p.string("test_clock")
 		}
 		if defaultPaymentMethod := p.string("invoice_settings[default_payment_method]"); defaultPaymentMethod != "" {
 			if metadata == nil {
@@ -382,14 +389,20 @@ func (h *Handler) handleCustomer(w http.ResponseWriter, r *http.Request) {
 		} else if len(discounts) > 0 {
 			metadata = billing.MergeDiscountMetadata(metadata, discounts)
 		}
-		customer, err := h.billing.UpdateCustomer(r.Context(), id, billing.Customer{
-			Email:    p.string("email"),
-			Name:     p.string("name"),
-			Metadata: metadata,
+		customer, err := h.billing.UpdateCustomer(r.Context(), id, billing.CustomerUpdate{
+			Email:            p.optionalString("email"),
+			Name:             p.optionalString("name"),
+			Description:      p.optionalString("description"),
+			Phone:            p.optionalString("phone"),
+			PreferredLocales: p.optionalList("preferred_locales"),
+			Metadata:         metadata,
 		})
 		writeResult(w, stripeCustomer(customer), err)
+	case http.MethodDelete:
+		customer, err := h.billing.DeleteCustomer(r.Context(), id)
+		writeResult(w, stripeCustomer(customer), err)
 	default:
-		h.methodNotAllowed(w, r, "GET, POST")
+		h.methodNotAllowed(w, r, "GET, POST, DELETE")
 	}
 }
 
@@ -2215,7 +2228,7 @@ func (h *Handler) createSubscriptionFromParamsWithCustomer(r *http.Request, defa
 	}
 	testClockID := p.string("test_clock")
 	if testClockID == "" {
-		testClockID = customer.Metadata["test_clock"]
+		testClockID = customer.Metadata[billing.MetadataTestClock]
 	}
 	completionOptions := billing.CheckoutCompletionOptions{}
 	if testClockID != "" {
@@ -2259,7 +2272,7 @@ func (h *Handler) createSubscriptionFromParamsWithCustomer(r *http.Request, defa
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
-		metadata["test_clock"] = testClockID
+		metadata[billing.MetadataTestClock] = testClockID
 	}
 	for _, key := range []string{"collection_method", "days_until_due", "cancel_at", "billing_cycle_anchor", "proration_behavior"} {
 		if value := p.string(key); value != "" {
@@ -2937,7 +2950,7 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 	testClock := any(nil)
 	if subscription.ID != "" {
 		billingReason = "subscription_update"
-		testClock = emptyToNil(firstNonEmptyString(metadataValue(subscription.Metadata, "test_clock"), metadataValue(subscription.Metadata, "testClock")))
+		testClock = emptyToNil(metadataValue(subscription.Metadata, billing.MetadataTestClock))
 	}
 	amount := discountedTotal
 	subtotal := newTotal
@@ -3158,7 +3171,7 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 	behavior := invoicePreviewProrationBehavior(p)
 	createdAt := invoicePreviewProrationDate(p, now)
 	billingCycleAnchor := invoicePreviewBillingCycleAnchor(p, createdAt)
-	testClock := emptyToNil(firstNonEmptyString(metadataValue(subscription.Metadata, "test_clock"), metadataValue(subscription.Metadata, "testClock")))
+	testClock := emptyToNil(metadataValue(subscription.Metadata, billing.MetadataTestClock))
 
 	// Next period starts at current_period_end. For trialing, first charge is at trial_end.
 	periodStart := subscription.CurrentPeriodEnd
@@ -4787,7 +4800,7 @@ func (h *Handler) handlePaymentMethodDetach(w http.ResponseWriter, r *http.Reque
 	if metadata[billing.MetadataDefaultPaymentMethod] == paymentMethodID {
 		delete(metadata, billing.MetadataDefaultPaymentMethod)
 	}
-	if _, err := h.billing.UpdateCustomer(r.Context(), customer.ID, billing.Customer{Metadata: metadata}); err != nil {
+	if _, err := h.billing.UpdateCustomer(r.Context(), customer.ID, billing.CustomerUpdate{Metadata: metadata}); err != nil {
 		writeResult(w, nil, err)
 		return
 	}
@@ -4852,10 +4865,7 @@ func (h *Handler) attachPaymentMethod(ctx context.Context, customerID string, pa
 	ids := append(splitPaymentMethodIDs(metadata[billing.MetadataPaymentMethodIDs]), paymentMethodID)
 	metadata[billing.MetadataPaymentMethodIDs] = strings.Join(uniquePaymentMethodIDs(ids), ",")
 	metadata[billing.MetadataPaymentMethodsFixture] = billing.PaymentMethodsFixtureExplicit
-	if strings.TrimSpace(metadata[billing.MetadataDefaultPaymentMethod]) == "" {
-		metadata[billing.MetadataDefaultPaymentMethod] = paymentMethodID
-	}
-	return h.billing.UpdateCustomer(ctx, customer.ID, billing.Customer{Metadata: metadata})
+	return h.billing.UpdateCustomer(ctx, customer.ID, billing.CustomerUpdate{Metadata: metadata})
 }
 
 func (h *Handler) findPaymentMethodCustomer(ctx context.Context, paymentMethodID string) (billing.Customer, bool, error) {
@@ -6529,6 +6539,25 @@ func (p params) string(key string) string {
 	return strings.TrimSpace(p.values[key])
 }
 
+func (p params) optionalString(key string) *string {
+	value, ok := p.values[key]
+	if !ok {
+		return nil
+	}
+	value = strings.TrimSpace(value)
+	return &value
+}
+
+func (p params) optionalList(key string) *[]string {
+	for rawKey := range p.values {
+		if rawKey == key || strings.HasPrefix(rawKey, key+"[") {
+			values := nonNilStrings(p.list(key))
+			return &values
+		}
+	}
+	return nil
+}
+
 func (p params) stringDefault(key string, fallback string) string {
 	if value := p.string(key); value != "" {
 		return value
@@ -7180,22 +7209,38 @@ func stripeSearchResult(urlPath string, query string, data any) map[string]any {
 }
 
 func stripeCustomer(customer billing.Customer) map[string]any {
-	defaultPaymentMethod := customer.Metadata[billing.MetadataDefaultPaymentMethod]
+	if customer.Deleted {
+		return map[string]any{"id": customer.ID, "object": billing.ObjectCustomer, "deleted": true}
+	}
 	discounts := billing.DiscountsFromMetadata(customer.Metadata)
 	return map[string]any{
-		"id":         customer.ID,
-		"object":     billing.ObjectCustomer,
-		"email":      customer.Email,
-		"name":       customer.Name,
-		"metadata":   nonNilMap(customer.Metadata),
-		"created":    unix(customer.CreatedAt),
-		"created_at": customer.CreatedAt,
+		"id":               customer.ID,
+		"object":           billing.ObjectCustomer,
+		"address":          nil,
+		"balance":          0,
+		"created":          unix(customer.CreatedAt),
+		"currency":         nil,
+		"customer_account": nil,
+		"default_source":   nil,
+		"delinquent":       false,
+		"description":      emptyToNil(customer.Description),
+		"discount":         firstDiscountObject(nil, discounts, customer.ID, "", ""),
+		"email":            emptyToNil(customer.Email),
+		"invoice_prefix":   customer.InvoicePrefix,
 		"invoice_settings": map[string]any{
-			"default_payment_method": emptyToNil(defaultPaymentMethod),
+			"custom_fields":          nil,
+			"default_payment_method": emptyToNil(customer.Metadata[billing.MetadataDefaultPaymentMethod]),
+			"footer":                 nil,
+			"rendering_options":      nil,
 		},
-		"test_clock": emptyToNil(customer.Metadata["test_clock"]),
-		"discount":   firstDiscountObject(nil, discounts, customer.ID, "", ""),
-		"livemode":   false,
+		"livemode":          false,
+		"metadata":          publicMetadata(customer.Metadata),
+		"name":              emptyToNil(customer.Name),
+		"phone":             emptyToNil(customer.Phone),
+		"preferred_locales": nonNilStrings(customer.PreferredLocales),
+		"shipping":          nil,
+		"tax_exempt":        "none",
+		"test_clock":        emptyToNil(customer.Metadata[billing.MetadataTestClock]),
 	}
 }
 
@@ -7928,7 +7973,7 @@ func (h *Handler) stripeSubscription(r *http.Request, sub billing.Subscription) 
 		"latest_invoice":       emptyToNil(sub.LatestInvoiceID),
 		"discount":             firstDiscountObject(h, discounts, sub.CustomerID, sub.ID, ""),
 		"discounts":            discountObjects(h, discounts, sub.CustomerID, sub.ID, ""),
-		"test_clock":           emptyToNil(sub.Metadata["test_clock"]),
+		"test_clock":           emptyToNil(sub.Metadata[billing.MetadataTestClock]),
 		"metadata":             nonNilMap(sub.Metadata),
 		"collection_method":    stringDefault(sub.Metadata["collection_method"], "charge_automatically"),
 		"billing_cycle_anchor": unix(sub.CurrentPeriodStart),
@@ -9510,6 +9555,23 @@ func setupIntentError(intent billing.SetupIntent) any {
 		out["decline_code"] = intent.DeclineCode
 	}
 	return out
+}
+
+func publicMetadata(in map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, value := range in {
+		if !strings.HasPrefix(key, billing.InternalMetadataPrefix) {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }
 
 func nonNilMap(in map[string]string) map[string]string {
