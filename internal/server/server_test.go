@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/config"
-	"github.com/midagedev/billtap/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/config"
+	"github.com/chelokot/stripe-emulate/internal/storage"
 )
 
 func TestHealthEndpoint(t *testing.T) {
@@ -132,7 +132,7 @@ func TestHostedInvoiceURLRedirectsToInvoiceAPI(t *testing.T) {
 
 func TestPublicBasePathPrefixesBrowserRoutes(t *testing.T) {
 	handler := New(Options{
-		Config: config.Config{Addr: ":0", DatabaseURL: ":memory:", StaticDir: "web/dist", Environment: "test", PublicBasePath: "/billtap"},
+		Config: config.Config{Addr: ":0", DatabaseURL: ":memory:", StaticDir: "web/dist", Environment: "test", PublicBasePath: "/emulator"},
 		Store:  storage.NewMemoryStore(),
 	})
 
@@ -140,9 +140,9 @@ func TestPublicBasePathPrefixesBrowserRoutes(t *testing.T) {
 		path string
 		want string
 	}{
-		{path: "/billtap", want: "/billtap/app/dashboard/"},
-		{path: "/billtap/checkout?session_id=cs_test_123", want: "/billtap/app/checkout/?session_id=cs_test_123"},
-		{path: "/checkout?session_id=cs_test_456", want: "/billtap/app/checkout/?session_id=cs_test_456"},
+		{path: "/emulator", want: "/emulator/app/dashboard/"},
+		{path: "/emulator/checkout?session_id=cs_test_123", want: "/emulator/app/checkout/?session_id=cs_test_123"},
+		{path: "/checkout?session_id=cs_test_456", want: "/emulator/app/checkout/?session_id=cs_test_456"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 		rec := httptest.NewRecorder()
@@ -155,7 +155,7 @@ func TestPublicBasePathPrefixesBrowserRoutes(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/billtap/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/emulator/healthz", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -170,13 +170,13 @@ func TestForwardedPrefixDrivesRedirects(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/portal?customer_id=cus_test_123", nil)
-	req.Header.Set("X-Forwarded-Prefix", "/billtap")
+	req.Header.Set("X-Forwarded-Prefix", "/emulator")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
 	}
-	if got := rec.Header().Get("Location"); got != "/billtap/app/portal/?customer_id=cus_test_123" {
+	if got := rec.Header().Get("Location"); got != "/emulator/app/portal/?customer_id=cus_test_123" {
 		t.Fatalf("Location = %q, want prefixed portal URL", got)
 	}
 }
@@ -227,19 +227,19 @@ func TestPublicBasePathPrefixesAPISessionURLs(t *testing.T) {
 		DatabaseURL:    ":memory:",
 		StaticDir:      "web/dist",
 		Environment:    "test",
-		PublicBasePath: "/billtap",
+		PublicBasePath: "/emulator",
 		PublicBaseURL:  "https://localhost:8081",
 	})
 
 	customer := postForm[struct {
 		ID string `json:"id"`
-	}](t, handler, "/billtap/v1/customers", map[string]string{"email": "buyer@example.test"})
+	}](t, handler, "/emulator/v1/customers", map[string]string{"email": "buyer@example.test"})
 	product := postForm[struct {
 		ID string `json:"id"`
-	}](t, handler, "/billtap/v1/products", map[string]string{"name": "Team"})
+	}](t, handler, "/emulator/v1/products", map[string]string{"name": "Team"})
 	price := postForm[struct {
 		ID string `json:"id"`
-	}](t, handler, "/billtap/v1/prices", map[string]string{
+	}](t, handler, "/emulator/v1/prices", map[string]string{
 		"product":             product.ID,
 		"currency":            "usd",
 		"unit_amount":         "9900",
@@ -247,12 +247,12 @@ func TestPublicBasePathPrefixesAPISessionURLs(t *testing.T) {
 	})
 	session := postForm[struct {
 		URL string `json:"url"`
-	}](t, handler, "/billtap/v1/checkout/sessions", map[string]string{
+	}](t, handler, "/emulator/v1/checkout/sessions", map[string]string{
 		"customer":                customer.ID,
 		"line_items[0][price]":    price.ID,
 		"line_items[0][quantity]": "1",
 	})
-	if got, want := session.URL, "https://localhost:8081/billtap/checkout/"; len(got) < len(want) || got[:len(want)] != want {
+	if got, want := session.URL, "https://localhost:8081/emulator/checkout/"; len(got) < len(want) || got[:len(want)] != want {
 		t.Fatalf("checkout session URL = %q, want prefix %q", got, want)
 	}
 }
@@ -264,7 +264,7 @@ func TestForwardedPrefixPrefixesAPISessionURLs(t *testing.T) {
 		StaticDir:   "web/dist",
 		Environment: "test",
 	})
-	headers := map[string]string{"X-Forwarded-Prefix": "/billtap"}
+	headers := map[string]string{"X-Forwarded-Prefix": "/emulator"}
 
 	customer := postFormWithHeaders[struct {
 		ID string `json:"id"`
@@ -287,7 +287,7 @@ func TestForwardedPrefixPrefixesAPISessionURLs(t *testing.T) {
 		"line_items[0][price]":    price.ID,
 		"line_items[0][quantity]": "1",
 	}, headers)
-	if got, want := session.URL, "http://example.com/billtap/checkout/"; len(got) < len(want) || got[:len(want)] != want {
+	if got, want := session.URL, "http://example.com/emulator/checkout/"; len(got) < len(want) || got[:len(want)] != want {
 		t.Fatalf("checkout session URL = %q, want prefix %q", got, want)
 	}
 }
@@ -321,7 +321,7 @@ func postFormWithHeaders[T any](t *testing.T, handler http.Handler, path string,
 
 func newSQLiteBackedServer(t *testing.T, cfg config.Config) http.Handler {
 	t.Helper()
-	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

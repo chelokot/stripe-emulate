@@ -58,7 +58,7 @@ function DashboardApp() {
     })),
     evidence: {
       signatureHeader: "t=1778233312,v1=sandbox_mismatch",
-      idempotencyKey: "billtap:evt_test_90:attempt_2",
+      idempotencyKey: "emulator:evt_test_90:attempt_2",
       failureReason: "handler returned 503 before entitlement update",
     },
     scenario: {

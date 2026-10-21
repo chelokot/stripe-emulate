@@ -313,7 +313,7 @@ func (r *Runner) saasExtraExportProvide(step Step, params map[string]any, state 
 
 func (r *Runner) saasCustomerPortal(step Step, params map[string]any, state *runState) map[string]any {
 	workspace, _ := saasWorkspace(params, state)
-	portal := map[string]any{"url": "https://billtap.local/portal/****", "masked": true, "workspaceId": stringValue(workspace, "id")}
+	portal := map[string]any{"url": "https://emulator.local/portal/****", "masked": true, "workspaceId": stringValue(workspace, "id")}
 	return saveStep(state, step.ID, map[string]any{"portal": portal})
 }
 

@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 func setupDraftInvoiceWithLine(t *testing.T, handler http.Handler) (customer billing.Customer, invoiceID, lineID string) {
@@ -110,7 +110,7 @@ func TestInvoiceAttachPayment(t *testing.T) {
 	}](t, handler, "/v1/invoices/"+invoiceID+"/attach_payment", url.Values{
 		"payment_intent": {intent.ID},
 	})
-	if attached.Metadata["billtap_attached_payment_intent"] != intent.ID {
+	if attached.Metadata["emulator_attached_payment_intent"] != intent.ID {
 		t.Fatalf("attach_payment metadata = %#v, want recorded %s", attached.Metadata, intent.ID)
 	}
 }
@@ -149,7 +149,7 @@ func TestSubscriptionMigrate(t *testing.T) {
 	}](t, handler, "/v1/subscriptions/"+subscription.ID+"/migrate", url.Values{
 		"billing_mode[type]": {"flexible"},
 	})
-	if migrated.ID != subscription.ID || migrated.Metadata["billtap_billing_mode"] != "flexible" {
+	if migrated.ID != subscription.ID || migrated.Metadata["emulator_billing_mode"] != "flexible" {
 		t.Fatalf("migrated subscription = %#v, want billing_mode=flexible evidence", migrated)
 	}
 }

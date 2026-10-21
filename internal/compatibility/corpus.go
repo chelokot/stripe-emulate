@@ -15,7 +15,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Steps: []requestSpec{{
 				Name:   "create product",
 				Method: http.MethodPost,
@@ -30,7 +29,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create product without name",
 				Method: http.MethodPost,
@@ -51,7 +49,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create product with unknown nickname",
 				Method: http.MethodPost,
@@ -73,7 +70,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create customer with unknown nickname",
 				Method: http.MethodPost,
@@ -95,7 +91,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "protocol",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/STRIPE_API_COMPATIBILITY_ROADMAP.md#s1-protocol-compatibility-baseline",
 			Steps: []requestSpec{{
 				Name:   "create customer with ignored expand parameter",
 				Method: http.MethodPost,
@@ -110,7 +105,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "update customer with unknown nickname",
 				Method: http.MethodPost,
@@ -132,7 +126,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create price with non-integer amount",
 				Method: http.MethodPost,
@@ -158,7 +151,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create price with decimal JSON amount",
 				Method: http.MethodPost,
@@ -184,7 +176,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create price with invalid interval",
 				Method: http.MethodPost,
@@ -211,7 +202,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "update price with invalid active flag",
 				Method: http.MethodPost,
@@ -233,7 +223,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create price without product",
 				Method: http.MethodPost,
@@ -258,7 +247,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			// 2026-08-04: mode=payment now supported; case moved to setup (still unsupported)
 			Steps: []requestSpec{{
 				Name:   "create checkout session with setup mode",
@@ -285,7 +273,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create checkout session with quantity zero",
 				Method: http.MethodPost,
@@ -311,7 +298,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create checkout session without line items",
 				Method: http.MethodPost,
@@ -333,7 +319,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Steps: []requestSpec{
 				{
 					Name:   "create checkout customer",
@@ -387,7 +372,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create billing portal session without customer",
 				Method: http.MethodPost,
@@ -408,7 +392,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create webhook endpoint with invalid retry count",
 				Method: http.MethodPost,
@@ -433,7 +416,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "update webhook endpoint with invalid active flag",
 				Method: http.MethodPost,
@@ -455,7 +437,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create subscription with quantity zero",
 				Method: http.MethodPost,
@@ -481,7 +462,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "update subscription with invalid cancel flag",
 				Method: http.MethodPost,
@@ -503,7 +483,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "request-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create subscription item with quantity zero",
 				Method: http.MethodPost,
@@ -529,7 +508,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "idempotency",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Steps: []requestSpec{
 				{
 					Name:             "create customer with idempotency key",
@@ -561,7 +539,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "openapi-schema-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/STRIPE_API_COMPATIBILITY_ROADMAP.md#s2-openapi-backed-validation-and-fixture-responses",
 			Steps: []requestSpec{{
 				Name:   "list country specs with invalid limit",
 				Method: http.MethodGet,
@@ -582,7 +559,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "openapi-schema-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/STRIPE_API_COMPATIBILITY_ROADMAP.md#s2-openapi-backed-validation-and-fixture-responses",
 			Steps: []requestSpec{{
 				Name:   "list country specs with unknown parameter",
 				Method: http.MethodGet,
@@ -603,7 +579,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "openapi-schema-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/STRIPE_API_COMPATIBILITY_ROADMAP.md#s2-openapi-backed-validation-and-fixture-responses",
 			Steps: []requestSpec{{
 				Name:   "create app secret without name",
 				Method: http.MethodPost,
@@ -628,7 +603,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "openapi-schema-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/STRIPE_API_COMPATIBILITY_ROADMAP.md#s2-openapi-backed-validation-and-fixture-responses",
 			Steps: []requestSpec{{
 				Name:   "create app secret with invalid scope type",
 				Method: http.MethodPost,
@@ -654,7 +628,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "openapi-schema-validation",
 			Level:           "L1",
 			ReleaseBlocking: true,
-			Reference:       "docs/STRIPE_API_COMPATIBILITY_ROADMAP.md#s2-openapi-backed-validation-and-fixture-responses",
 			Steps: []requestSpec{{
 				Name:   "create account session with invalid nested enabled flag",
 				Method: http.MethodPost,
@@ -679,7 +652,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -698,7 +670,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -717,7 +688,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -736,7 +706,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -755,7 +724,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -774,7 +742,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -793,7 +760,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -812,7 +778,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "error-simulation",
 			Level:           "L2",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Expect: Observation{
 				HTTPStatus:          http.StatusOK,
 				Object:              "payment_intent",
@@ -830,7 +795,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "billing-lifecycle",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Expect:          Observation{HTTPStatus: http.StatusOK, Object: "invoice", ObjectStatus: "paid"},
 			Run:             runInvoicePayRetry("pm_card_visa", "paid"),
 		},
@@ -840,7 +804,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "billing-lifecycle",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Expect:          Observation{HTTPStatus: http.StatusOK, Object: "invoice", ObjectStatus: "open"},
 			Run:             runInvoicePayRetry("pm_card_visa_chargeDeclined", "open"),
 		},
@@ -850,7 +813,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "billing-lifecycle",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Expect:          Observation{HTTPStatus: http.StatusOK, Object: "invoice", ObjectStatus: "paid"},
 			Run:             runOneTimeInvoiceFlow(),
 		},
@@ -860,7 +822,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "billing-lifecycle",
 			Level:           "L4",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#scenario-claim",
 			Expect:          Observation{HTTPStatus: http.StatusOK, Object: "scenario_report", ObjectStatus: "passed"},
 			Run:             runInvoiceRetryScenario(),
 		},
@@ -870,7 +831,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "billing-lifecycle",
 			Level:           "L4",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#scenario-claim",
 			Expect:          Observation{HTTPStatus: http.StatusOK, Object: "scenario_report", ObjectStatus: "passed"},
 			Run:             runClockAdvanceRenewalScenario(),
 		},
@@ -880,7 +840,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "billing-lifecycle",
 			Level:           "L4",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#scenario-claim",
 			Expect:          Observation{HTTPStatus: http.StatusOK, Object: "scenario_report", ObjectStatus: "passed"},
 			Run:             runClockAdvanceCancelAtPeriodEnd(),
 		},
@@ -890,7 +849,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-payment-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Steps: []requestSpec{{
 				Name:   "create and confirm payment intent",
 				Method: http.MethodPost,
@@ -910,7 +868,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-payment-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Steps: []requestSpec{
 				{
 					Name:             "create payment intent",
@@ -944,7 +901,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-payment-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Steps: []requestSpec{
 				{
 					Name:             "create confirmed manual payment intent",
@@ -968,7 +924,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-payment-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l1---request-validation-parity-for-supported-endpoints",
 			Steps: []requestSpec{{
 				Name:   "create and confirm payment intent without payment method",
 				Method: http.MethodPost,
@@ -990,7 +945,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-payment-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Steps: []requestSpec{
 				{
 					Name:             "create succeeded payment intent",
@@ -1020,7 +974,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-setup-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Steps: []requestSpec{{
 				Name:   "create and confirm setup intent",
 				Method: http.MethodPost,
@@ -1039,7 +992,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-setup-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Steps: []requestSpec{{
 				Name:   "create and confirm declined setup intent",
 				Method: http.MethodPost,
@@ -1054,7 +1006,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-setup-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l2---deterministic-error-simulation",
 			Steps: []requestSpec{{
 				Name:   "create and confirm requires-action setup intent",
 				Method: http.MethodPost,
@@ -1069,7 +1020,6 @@ func builtinCorpus() []caseSpec {
 			Category:        "stateful-setup-intents",
 			Level:           "L3",
 			ReleaseBlocking: true,
-			Reference:       "docs/COMPATIBILITY.md#supported-stripe-like-api-subset",
 			Steps: []requestSpec{
 				{
 					Name:             "create succeeded setup intent",
@@ -1098,15 +1048,13 @@ func builtinCorpus() []caseSpec {
 			Name:       "stripe-mock route and parameter oracle lane",
 			Category:   "differential-oracle",
 			Level:      "L3",
-			Reference:  "docs/API_VALIDATION_AND_ERROR_SIMULATION.md#l3---compatibility-scorecard-and-differential-harness",
-			SkipReason: "external oracle intentionally skipped in the offline scorecard; Billtap-owned expectations still run locally",
+			SkipReason: "external oracle intentionally skipped in the offline scorecard; Emulator-owned expectations still run locally",
 		},
 		{
 			ID:          "payment_intents.apply_customer_balance.unsupported",
 			Name:        "Payment intent customer-balance application is unsupported",
 			Category:    "unsupported-provider-behavior",
 			Level:       "L3",
-			Reference:   "docs/COMPATIBILITY.md#unsupported-stripe-behavior",
 			Unsupported: "payment intent customer balance application remains outside the local direct-intent state machine",
 		},
 	}

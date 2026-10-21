@@ -43,7 +43,7 @@ func RedactHeaders(headers map[string]string) map[string]string {
 
 func isSignatureHeader(key string) bool {
 	normalized := normalize(key)
-	return normalized == "billtapsignature" || normalized == "stripesignature"
+	return normalized == "stripesignature"
 }
 
 func MaskSignatureHeader(value string) string {

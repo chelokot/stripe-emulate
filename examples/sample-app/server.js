@@ -4,9 +4,9 @@ import { URL } from "node:url";
 
 const port = Number(process.env.PORT || 3300);
 const webhookSecret =
-  process.env.BILLTAP_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET || "";
+  process.env.STRIPE_EMULATE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET || "";
 const signatureToleranceSeconds = Number(
-  process.env.BILLTAP_SIGNATURE_TOLERANCE_SECONDS || 300,
+  process.env.STRIPE_EMULATE_SIGNATURE_TOLERANCE_SECONDS || 300,
 );
 
 let appState = newAppState();
@@ -18,7 +18,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && url.pathname === "/") {
       return writeJSON(res, 200, {
-        name: "billtap-sample-app",
+        name: "emulator-sample-app",
         endpoints: [
           "GET /healthz",
           "GET /state",
@@ -64,7 +64,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
-  console.log(`billtap sample app listening on http://localhost:${port}`);
+  console.log(`emulator sample app listening on http://localhost:${port}`);
 });
 
 process.on("SIGTERM", shutdown);
@@ -79,7 +79,7 @@ async function handleWebhook(req, res) {
 
   if (webhookSecret !== "") {
     const signatureHeader = firstHeader(
-      req.headers["billtap-signature"] || req.headers["stripe-signature"],
+      req.headers["stripe-signature"],
     );
     verifySignature(signatureHeader, webhookSecret, rawBody);
   }
@@ -162,7 +162,7 @@ function applyWebhookEvent(event) {
     id: event.id,
     type: event.type,
     created: event.created,
-    sequence: event.billtap?.sequence,
+    sequence: event.emulator?.sequence,
     received_at: new Date().toISOString(),
   });
 
@@ -447,13 +447,13 @@ function sameValue(expected, actual) {
 
 function verifySignature(header, secret, rawBody) {
   if (!header) {
-    throw httpError(400, "missing Billtap-Signature header");
+    throw httpError(400, "missing Stripe-Signature header");
   }
 
   const parsed = parseSignatureHeader(header);
   const signedAt = Number(parsed.t);
   if (!Number.isFinite(signedAt) || signedAt <= 0 || parsed.v1.length === 0) {
-    throw httpError(400, "invalid Billtap-Signature header");
+    throw httpError(400, "invalid Stripe-Signature header");
   }
 
   const age = Math.abs(Math.floor(Date.now() / 1000) - signedAt);

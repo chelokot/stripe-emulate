@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 // Stripe accepts amount=0 invoice items (e.g. a 0-cost recurring price).

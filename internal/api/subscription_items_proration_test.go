@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 // Seat add/remove via POST|DELETE /v1/subscription_items with proration_behavior.
@@ -151,7 +151,7 @@ func TestSubscriptionItemCreateCreateProrationsDefersToRenewal(t *testing.T) {
 	}
 
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal int64 `json:"subtotal"`
@@ -159,14 +159,14 @@ func TestSubscriptionItemCreateCreateProrationsDefersToRenewal(t *testing.T) {
 					Tax      int64 `json:"tax"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_seat_create_prorations/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(periodEnd, 10)},
 	})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("renewals = %#v, want 1", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("renewals = %#v, want 1", advance.EmulatorAdvanceResult.Renewals)
 	}
-	renewal := advance.BilltapAdvanceResult.Renewals[0].Invoice
+	renewal := advance.EmulatorAdvanceResult.Renewals[0].Invoice
 	// New period base = 9900 + 2000 = 11900 + pending
 	wantSubtotal := 11900 + wantPending
 	_, _, _, wantTax := billing.ComputeTaxRateAmounts(wantSubtotal, []billing.AppliedTaxRate{{Percentage: 10, Inclusive: false}})
@@ -355,7 +355,7 @@ func TestSubscriptionItemDeleteCreateProrationsNegativePending(t *testing.T) {
 	}
 
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal int64 `json:"subtotal"`
@@ -363,14 +363,14 @@ func TestSubscriptionItemDeleteCreateProrationsNegativePending(t *testing.T) {
 					Tax      int64 `json:"tax"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_seat_delete_prorations/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(periodEnd, 10)},
 	})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("renewals = %#v, want 1", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("renewals = %#v, want 1", advance.EmulatorAdvanceResult.Renewals)
 	}
-	renewal := advance.BilltapAdvanceResult.Renewals[0].Invoice
+	renewal := advance.EmulatorAdvanceResult.Renewals[0].Invoice
 	// After delete: base only 9900 + negative pending
 	wantSubtotal := 9900 + wantPending
 	_, _, _, wantTax := billing.ComputeTaxRateAmounts(wantSubtotal, []billing.AppliedTaxRate{{Percentage: 10, Inclusive: false}})
@@ -591,7 +591,7 @@ func deleteForm[T any](t *testing.T, handler http.Handler, path string, values u
 		body = strings.NewReader("")
 	}
 	req := httptest.NewRequest(http.MethodDelete, path, body)
-	req.Host = "billtap.test"
+	req.Host = "emulator.test"
 	if values != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -609,7 +609,7 @@ func deleteFormStatus(t *testing.T, handler http.Handler, path string, values ur
 		body = strings.NewReader("")
 	}
 	req := httptest.NewRequest(http.MethodDelete, path, body)
-	req.Host = "billtap.test"
+	req.Host = "emulator.test"
 	if values != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}

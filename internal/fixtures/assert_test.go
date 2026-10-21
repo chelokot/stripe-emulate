@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 func TestCountInvoicesTaxTotalSubtotalFilters(t *testing.T) {

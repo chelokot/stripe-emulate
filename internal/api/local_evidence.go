@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 // Evidence kinds. These are the persistence keys, so renaming one orphans the
@@ -727,7 +727,7 @@ func (h *Handler) applyDueSubscriptionSchedules(r *http.Request, clockID string,
 		subscription, err := h.billing.PatchSubscription(r.Context(), subscriptionID, billing.SubscriptionPatch{
 			Items:        []billing.LineItem{{PriceID: priceID, Quantity: quantity}},
 			ReplaceItems: true,
-			Metadata:     map[string]string{"billtap_subscription_schedule": fmt.Sprint(schedule["id"])},
+			Metadata:     map[string]string{"emulator_subscription_schedule": fmt.Sprint(schedule["id"])},
 		})
 		if err != nil {
 			continue

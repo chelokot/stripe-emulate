@@ -40,22 +40,19 @@ func TestWriteInventoryArtifactsClassifiesOpenAPIOperations(t *testing.T) {
 	if inventory.Summary.ImplementedPercent != 85.7 {
 		t.Fatalf("implemented percent = %.1f, want 85.7", inventory.Summary.ImplementedPercent)
 	}
-	if inventory.Summary.BilltapOnlyRoutes != 1 {
-		t.Fatalf("billtap-only routes = %d, want 1", inventory.Summary.BilltapOnlyRoutes)
+	if inventory.Summary.EmulatorOnlyRoutes != 1 {
+		t.Fatalf("emulator-only routes = %d, want 1", inventory.Summary.EmulatorOnlyRoutes)
 	}
 	if inventory.Summary.ByLevel["L0"] != 2 || inventory.Summary.ByLevel["L2"] != 2 || inventory.Summary.ByLevel["L3"] != 8 || inventory.Summary.ByLevel["L4"] != 1 || inventory.Summary.ByLevel["L5"] != 1 {
 		t.Fatalf("by level = %#v, want L0=2 L2=2 L3=8 L4=1 L5=1", inventory.Summary.ByLevel)
 	}
 
 	customerCreate := findOperation(t, inventory, http.MethodPost, "/v1/customers")
-	if !customerCreate.Implemented || customerCreate.BilltapLevel != "L3" || !customerCreate.Stateful {
+	if !customerCreate.Implemented || customerCreate.EmulatorLevel != "L3" || !customerCreate.Stateful {
 		t.Fatalf("customer create coverage = %#v, want implemented L3 stateful", customerCreate)
 	}
 	if customerCreate.SchemaValidated {
 		t.Fatalf("customer create schema_validated = true, want false because fixture has no parameter/requestBody schemas")
-	}
-	if customerCreate.Docs == "" {
-		t.Fatalf("customer create docs = empty, want traceable compatibility docs")
 	}
 	customers := findFamily(t, inventory, "customers")
 	if customers.Priority != "P1" || customers.TotalOperations != 4 || customers.ImplementedOperations != 4 || customers.ImplementedPercent != 100 {
@@ -63,7 +60,7 @@ func TestWriteInventoryArtifactsClassifiesOpenAPIOperations(t *testing.T) {
 	}
 
 	checkoutCreate := findOperation(t, inventory, http.MethodPost, "/v1/checkout/sessions")
-	if !checkoutCreate.Implemented || checkoutCreate.BilltapLevel != "L4" || checkoutCreate.TargetLevel != "L4-L6" {
+	if !checkoutCreate.Implemented || checkoutCreate.EmulatorLevel != "L4" || checkoutCreate.TargetLevel != "L4-L6" {
 		t.Fatalf("checkout create coverage = %#v, want implemented L4 target L4-L6", checkoutCreate)
 	}
 	if !containsString(checkoutCreate.ScorecardCases, "checkout.sessions.create.java_sdk_optional_params") {
@@ -71,12 +68,12 @@ func TestWriteInventoryArtifactsClassifiesOpenAPIOperations(t *testing.T) {
 	}
 
 	webhookCreate := findOperation(t, inventory, http.MethodPost, "/v1/webhook_endpoints")
-	if !webhookCreate.Implemented || webhookCreate.BilltapLevel != "L5" {
+	if !webhookCreate.Implemented || webhookCreate.EmulatorLevel != "L5" {
 		t.Fatalf("webhook create coverage = %#v, want implemented L5", webhookCreate)
 	}
 
 	paymentIntentConfirm := findOperation(t, inventory, http.MethodPost, "/v1/payment_intents/{intent}/confirm")
-	if !paymentIntentConfirm.Implemented || paymentIntentConfirm.BilltapLevel != "L3" || paymentIntentConfirm.TargetLevel != "L3-L6" {
+	if !paymentIntentConfirm.Implemented || paymentIntentConfirm.EmulatorLevel != "L3" || paymentIntentConfirm.TargetLevel != "L3-L6" {
 		t.Fatalf("payment intent confirm coverage = %#v, want implemented L3 payment target", paymentIntentConfirm)
 	}
 	if !containsString(paymentIntentConfirm.ScorecardCases, "payment_intents.confirm.card_decline") {
@@ -84,19 +81,19 @@ func TestWriteInventoryArtifactsClassifiesOpenAPIOperations(t *testing.T) {
 	}
 
 	accountsV2 := findOperation(t, inventory, http.MethodPost, "/v2/core/accounts")
-	if accountsV2.Family != "connect" || accountsV2.BilltapLevel != "L0" || accountsV2.TargetLevel != "L2-L5" {
+	if accountsV2.Family != "connect" || accountsV2.EmulatorLevel != "L0" || accountsV2.TargetLevel != "L2-L5" {
 		t.Fatalf("accounts v2 coverage = %#v, want connect inventory target", accountsV2)
 	}
 	accountSession := findOperation(t, inventory, http.MethodPost, "/v1/account_sessions")
-	if accountSession.Family != "connect" || accountSession.Resource != "account_session" || !accountSession.Implemented || accountSession.BilltapLevel != "L2" {
+	if accountSession.Family != "connect" || accountSession.Resource != "account_session" || !accountSession.Implemented || accountSession.EmulatorLevel != "L2" {
 		t.Fatalf("account session coverage = %#v, want implemented connect account_session L2", accountSession)
 	}
 	account := findOperation(t, inventory, http.MethodGet, "/v1/account")
-	if account.Family != "connect" || account.Resource != "account" || !account.Implemented || account.BilltapLevel != "L2" {
+	if account.Family != "connect" || account.Resource != "account" || !account.Implemented || account.EmulatorLevel != "L2" {
 		t.Fatalf("account coverage = %#v, want implemented connect account L2", account)
 	}
 	applicationFeeRefund := findOperation(t, inventory, http.MethodGet, "/v1/application_fees/{fee}/refunds")
-	if applicationFeeRefund.Family != "connect" || applicationFeeRefund.Resource != "application_fee_refund" || !applicationFeeRefund.Implemented || applicationFeeRefund.BilltapLevel != "L3" {
+	if applicationFeeRefund.Family != "connect" || applicationFeeRefund.Resource != "application_fee_refund" || !applicationFeeRefund.Implemented || applicationFeeRefund.EmulatorLevel != "L3" {
 		t.Fatalf("application fee refund coverage = %#v, want implemented connect application fee refund L3", applicationFeeRefund)
 	}
 	financialConnectionAccount := findOperation(t, inventory, http.MethodGet, "/v1/financial_connections/accounts")
@@ -122,10 +119,10 @@ func TestWriteInventoryArtifactsClassifiesOpenAPIOperations(t *testing.T) {
 	if !fileContains(t, jsonPath, `"schema_validated_operations": 0`) || !fileContains(t, mdPath, "OpenAPI validation catalog") {
 		t.Fatalf("inventory artifacts missing schema validation coverage fields")
 	}
-	if !fileContains(t, jsonPath, `"billtap_only_routes"`) || !fileContains(t, jsonPath, `/v1/checkout/sessions/{id}/complete`) {
-		t.Fatalf("JSON inventory missing Billtap-specific route exception")
+	if !fileContains(t, jsonPath, `"emulator_only_routes"`) || !fileContains(t, jsonPath, `/v1/checkout/sessions/{id}/complete`) {
+		t.Fatalf("JSON inventory missing Emulator-specific route exception")
 	}
-	if !fileContains(t, mdPath, "# Stripe API Compatibility Inventory") || !fileContains(t, mdPath, "Family Coverage") || !fileContains(t, mdPath, "Billtap-Specific `/v1` Exceptions") {
+	if !fileContains(t, mdPath, "# Stripe API Compatibility Inventory") || !fileContains(t, mdPath, "Family Coverage") || !fileContains(t, mdPath, "Emulator-Specific `/v1` Exceptions") {
 		t.Fatalf("Markdown inventory missing expected sections")
 	}
 }

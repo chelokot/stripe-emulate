@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/stripecompat"
+	"github.com/chelokot/stripe-emulate/internal/stripecompat"
 )
 
 const InventoryVersion = "stripe-api-inventory-v2"
@@ -26,15 +26,15 @@ type InventoryOptions struct {
 }
 
 type StripeAPIInventory struct {
-	Name              string                    `json:"name"`
-	InventoryVersion  string                    `json:"inventory_version"`
-	GeneratedAt       time.Time                 `json:"generated_at"`
-	Source            string                    `json:"source"`
-	OpenAPIVersion    string                    `json:"openapi_version,omitempty"`
-	StripeAPIVersion  string                    `json:"stripe_api_version,omitempty"`
-	Summary           InventorySummary          `json:"summary"`
-	Operations        []StripeOperationCoverage `json:"operations"`
-	BilltapOnlyRoutes []BilltapRouteCoverage    `json:"billtap_only_routes"`
+	Name               string                    `json:"name"`
+	InventoryVersion   string                    `json:"inventory_version"`
+	GeneratedAt        time.Time                 `json:"generated_at"`
+	Source             string                    `json:"source"`
+	OpenAPIVersion     string                    `json:"openapi_version,omitempty"`
+	StripeAPIVersion   string                    `json:"stripe_api_version,omitempty"`
+	Summary            InventorySummary          `json:"summary"`
+	Operations         []StripeOperationCoverage `json:"operations"`
+	EmulatorOnlyRoutes []EmulatorRouteCoverage   `json:"emulator_only_routes"`
 }
 
 type InventorySummary struct {
@@ -42,7 +42,7 @@ type InventorySummary struct {
 	ImplementedOperations     int              `json:"implemented_operations"`
 	InventoryOnlyOperations   int              `json:"inventory_only_operations"`
 	SchemaValidatedOperations int              `json:"schema_validated_operations"`
-	BilltapOnlyRoutes         int              `json:"billtap_only_routes"`
+	EmulatorOnlyRoutes        int              `json:"emulator_only_routes"`
 	ImplementedPercent        float64          `json:"implemented_percent"`
 	SchemaValidatedPercent    float64          `json:"schema_validated_percent"`
 	ByLevel                   map[string]int   `json:"by_level"`
@@ -71,23 +71,21 @@ type StripeOperationCoverage struct {
 	OperationID     string   `json:"operation_id,omitempty"`
 	Implemented     bool     `json:"implemented"`
 	SchemaValidated bool     `json:"schema_validated"`
-	BilltapLevel    string   `json:"billtap_level"`
+	EmulatorLevel   string   `json:"emulator_level"`
 	TargetLevel     string   `json:"target_level"`
 	Stateful        bool     `json:"stateful"`
 	WebhookEvents   []string `json:"webhook_events,omitempty"`
 	ScorecardCases  []string `json:"scorecard_cases,omitempty"`
 	SDKSmoke        []string `json:"sdk_smoke,omitempty"`
-	Docs            string   `json:"docs,omitempty"`
 	Risks           []string `json:"risks,omitempty"`
 }
 
-type BilltapRouteCoverage struct {
-	Path         string   `json:"path"`
-	Method       string   `json:"method"`
-	BilltapLevel string   `json:"billtap_level"`
-	Reason       string   `json:"reason"`
-	Docs         string   `json:"docs"`
-	Risks        []string `json:"risks,omitempty"`
+type EmulatorRouteCoverage struct {
+	Path          string   `json:"path"`
+	Method        string   `json:"method"`
+	EmulatorLevel string   `json:"emulator_level"`
+	Reason        string   `json:"reason"`
+	Risks         []string `json:"risks,omitempty"`
 }
 
 type openAPISpec struct {
@@ -133,7 +131,6 @@ type openAPISchema struct {
 type routeCoverage struct {
 	Level          string
 	Stateful       bool
-	Docs           string
 	WebhookEvents  []string
 	ScorecardCases []string
 	SDKSmoke       []string
@@ -166,7 +163,7 @@ func GenerateInventory(ctx context.Context, opts InventoryOptions) (StripeAPIInv
 		source = opts.OpenAPIPath
 	}
 	inventory := StripeAPIInventory{
-		Name:             "Billtap Stripe API compatibility inventory",
+		Name:             "Emulator Stripe API compatibility inventory",
 		InventoryVersion: InventoryVersion,
 		GeneratedAt:      now(),
 		Source:           source,
@@ -176,7 +173,7 @@ func GenerateInventory(ctx context.Context, opts InventoryOptions) (StripeAPIInv
 			ByLevel:  map[string]int{},
 			ByFamily: map[string]int{},
 		},
-		BilltapOnlyRoutes: billtapOnlyRoutes(),
+		EmulatorOnlyRoutes: emulatorOnlyRoutes(),
 	}
 
 	coverage := currentStripeRouteCoverage()
@@ -210,17 +207,16 @@ func GenerateInventory(ctx context.Context, opts InventoryOptions) (StripeAPIInv
 				OperationID:     operation.OperationID,
 				Implemented:     implemented,
 				SchemaValidated: schemaValidated,
-				BilltapLevel:    level,
+				EmulatorLevel:   level,
 				TargetLevel:     targetLevelForFamily(family),
 				Stateful:        current.Stateful,
 				WebhookEvents:   append([]string(nil), current.WebhookEvents...),
 				ScorecardCases:  append([]string(nil), current.ScorecardCases...),
 				SDKSmoke:        append([]string(nil), current.SDKSmoke...),
-				Docs:            current.Docs,
 				Risks:           append([]string(nil), current.Risks...),
 			}
 			if !implemented {
-				item.Risks = append(item.Risks, "inventory-only; no Billtap runtime claim")
+				item.Risks = append(item.Risks, "inventory-only; no Emulator runtime claim")
 			}
 			inventory.Operations = append(inventory.Operations, item)
 			inventory.Summary.TotalOperations++
@@ -251,7 +247,7 @@ func GenerateInventory(ctx context.Context, opts InventoryOptions) (StripeAPIInv
 			}
 		}
 	}
-	inventory.Summary.BilltapOnlyRoutes = len(inventory.BilltapOnlyRoutes)
+	inventory.Summary.EmulatorOnlyRoutes = len(inventory.EmulatorOnlyRoutes)
 	inventory.Summary.ImplementedPercent = percentage(inventory.Summary.ImplementedOperations, inventory.Summary.TotalOperations)
 	inventory.Summary.SchemaValidatedPercent = percentage(inventory.Summary.SchemaValidatedOperations, inventory.Summary.TotalOperations)
 	inventory.Summary.Families = sortedFamilyCoverage(familyStats)
@@ -339,7 +335,7 @@ func (i StripeAPIInventory) Markdown() string {
 			escapeTable(op.Path),
 			escapeTable(op.Family),
 			escapeTable(op.Resource),
-			op.BilltapLevel,
+			op.EmulatorLevel,
 			op.TargetLevel,
 			op.Implemented,
 			op.SchemaValidated,
@@ -347,15 +343,15 @@ func (i StripeAPIInventory) Markdown() string {
 		)
 	}
 
-	if len(i.BilltapOnlyRoutes) > 0 {
-		b.WriteString("\n## Billtap-Specific `/v1` Exceptions\n\n")
+	if len(i.EmulatorOnlyRoutes) > 0 {
+		b.WriteString("\n## Emulator-Specific `/v1` Exceptions\n\n")
 		b.WriteString("| Method | Path | Level | Reason |\n")
 		b.WriteString("| --- | --- | --- | --- |\n")
-		for _, route := range i.BilltapOnlyRoutes {
+		for _, route := range i.EmulatorOnlyRoutes {
 			fmt.Fprintf(&b, "| %s | %s | `%s` | %s |\n",
 				escapeTable(route.Method),
 				escapeTable(route.Path),
-				route.BilltapLevel,
+				route.EmulatorLevel,
 				escapeTable(route.Reason),
 			)
 		}
@@ -369,7 +365,6 @@ func currentStripeRouteCoverage() map[string]routeCoverage {
 		out[routeKey(claim.Method, claim.Path)] = routeCoverage{
 			Level:          claim.Level,
 			Stateful:       claim.Stateful,
-			Docs:           claim.Docs,
 			WebhookEvents:  append([]string(nil), claim.WebhookEvents...),
 			ScorecardCases: append([]string(nil), claim.ScorecardCases...),
 			SDKSmoke:       append([]string(nil), claim.SDKSmoke...),
@@ -379,15 +374,14 @@ func currentStripeRouteCoverage() map[string]routeCoverage {
 	return out
 }
 
-func billtapOnlyRoutes() []BilltapRouteCoverage {
-	return []BilltapRouteCoverage{
+func emulatorOnlyRoutes() []EmulatorRouteCoverage {
+	return []EmulatorRouteCoverage{
 		{
-			Method:       http.MethodPost,
-			Path:         "/v1/checkout/sessions/{id}/complete",
-			BilltapLevel: "L4",
-			Reason:       "sandbox checkout completion endpoint used by local tests and hosted Billtap checkout UI",
-			Docs:         "docs/COMPATIBILITY.md#billtap-apis",
-			Risks:        []string{"not a Stripe API endpoint"},
+			Method:        http.MethodPost,
+			Path:          "/v1/checkout/sessions/{id}/complete",
+			EmulatorLevel: "L4",
+			Reason:        "sandbox checkout completion endpoint used by local tests and hosted Emulator checkout UI",
+			Risks:         []string{"not a Stripe API endpoint"},
 		},
 	}
 }

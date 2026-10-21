@@ -21,26 +21,26 @@ var (
 )
 
 const (
-	MetadataDiscountCouponID        = "billtap_discount_coupon"
-	MetadataDiscountPromotionCodeID = "billtap_discount_promotion_code"
-	MetadataDiscountPercentOff      = "billtap_discount_percent_off"
-	MetadataDiscountAmountOff       = "billtap_discount_amount_off"
-	MetadataDiscountCurrency        = "billtap_discount_currency"
-	MetadataDiscountDuration        = "billtap_discount_duration"
-	MetadataDiscountCreated         = "billtap_discount_created"
-	MetadataDiscountAppliesTo       = "billtap_discount_applies_to"
-	MetadataAutomaticTax            = "billtap_automatic_tax"
-	MetadataTaxPercent              = "billtap_tax_percent"
-	MetadataDefaultTaxRates         = "billtap_default_tax_rates"
+	MetadataDiscountCouponID        = "emulator_discount_coupon"
+	MetadataDiscountPromotionCodeID = "emulator_discount_promotion_code"
+	MetadataDiscountPercentOff      = "emulator_discount_percent_off"
+	MetadataDiscountAmountOff       = "emulator_discount_amount_off"
+	MetadataDiscountCurrency        = "emulator_discount_currency"
+	MetadataDiscountDuration        = "emulator_discount_duration"
+	MetadataDiscountCreated         = "emulator_discount_created"
+	MetadataDiscountAppliesTo       = "emulator_discount_applies_to"
+	MetadataAutomaticTax            = "emulator_automatic_tax"
+	MetadataTaxPercent              = "emulator_tax_percent"
+	MetadataDefaultTaxRates         = "emulator_default_tax_rates"
 	// Pending proration accumulated by create_prorations; applied on next renewal.
-	MetadataPendingProrationAmount = "billtap_pending_proration_amount"
-	MetadataPendingProrationAt     = "billtap_pending_proration_at"
+	MetadataPendingProrationAmount = "emulator_pending_proration_amount"
+	MetadataPendingProrationAt     = "emulator_pending_proration_at"
 	// Invoice metadata keys for serialized billing_reason / credit evidence.
-	MetadataBillingReason = "billtap_billing_reason"
+	MetadataBillingReason = "emulator_billing_reason"
 	// Pre-discount unused old-cycle credit (anchor=now).
-	MetadataProrationCredit = "billtap_proration_credit"
+	MetadataProrationCredit = "emulator_proration_credit"
 	// Discounted unused old-cycle credit when it differs from MetadataProrationCredit.
-	MetadataProrationCreditDiscounted = "billtap_proration_credit_discounted"
+	MetadataProrationCreditDiscounted = "emulator_proration_credit_discounted"
 )
 
 // ErrPaymentRequired indicates a payment attempt failed under error_if_incomplete
@@ -463,7 +463,7 @@ func (s *Service) ExpireCheckoutSession(ctx context.Context, sessionID string) (
 	if session.Metadata == nil {
 		session.Metadata = map[string]string{}
 	}
-	session.Metadata["billtap_expired_at"] = at.Format(time.RFC3339Nano)
+	session.Metadata["emulator_expired_at"] = at.Format(time.RFC3339Nano)
 	return s.repo.UpdateCheckoutSession(ctx, session, []TimelineEntry{billingTimelineEntry(
 		"checkout_session_expired_"+session.ID+"_"+at.Format(time.RFC3339Nano),
 		"checkout.session.expired",
@@ -754,21 +754,21 @@ func (s *Service) completePaymentCheckout(
 	}
 
 	// User payment_intent_data[metadata] only at the unprefixed surface; house
-	// fields use billtap_* so they cannot collide with customer keys like
+	// fields use emulator_* so they cannot collide with customer keys like
 	// metadata[description]. Top-level PI fields are projected in stripePaymentIntent.
 	meta := copyMap(session.PaymentIntentMetadata)
 	if meta == nil {
 		meta = map[string]string{}
 	}
-	meta["billtap_checkout_session"] = session.ID
+	meta["emulator_checkout_session"] = session.ID
 	if session.SetupFutureUsage != "" {
-		meta["billtap_setup_future_usage"] = session.SetupFutureUsage
+		meta["emulator_setup_future_usage"] = session.SetupFutureUsage
 	}
 	if session.PaymentIntentDescription != "" {
-		meta["billtap_description"] = session.PaymentIntentDescription
+		meta["emulator_description"] = session.PaymentIntentDescription
 	}
 	if session.ReceiptEmail != "" {
-		meta["billtap_receipt_email"] = session.ReceiptEmail
+		meta["emulator_receipt_email"] = session.ReceiptEmail
 	}
 
 	intent := PaymentIntent{
@@ -1186,10 +1186,10 @@ func (s *Service) AttachInvoicePayment(ctx context.Context, invoiceID string, pa
 		invoice.Metadata = map[string]string{}
 	}
 	if strings.TrimSpace(paymentIntentID) != "" {
-		invoice.Metadata["billtap_attached_payment_intent"] = strings.TrimSpace(paymentIntentID)
+		invoice.Metadata["emulator_attached_payment_intent"] = strings.TrimSpace(paymentIntentID)
 	}
 	if strings.TrimSpace(paymentRecord) != "" {
-		invoice.Metadata["billtap_attached_payment_record"] = strings.TrimSpace(paymentRecord)
+		invoice.Metadata["emulator_attached_payment_record"] = strings.TrimSpace(paymentRecord)
 	}
 	return s.repo.UpdateInvoice(ctx, invoice, []TimelineEntry{billingTimelineEntry(
 		"invoice_payment_attached_"+invoice.ID+"_"+at.Format(time.RFC3339Nano),
@@ -1415,7 +1415,7 @@ func adoptInvoiceItemTaxRates(invoice *Invoice, rates []AppliedTaxRate) error {
 		return nil
 	}
 	if !sameTaxRateIDs(invoice.DefaultTaxRates, rates) {
-		return fmt.Errorf("%w: Billtap supports invoice item tax_rates only when every line on the invoice uses the same tax rates", ErrInvalidInput)
+		return fmt.Errorf("%w: Emulator supports invoice item tax_rates only when every line on the invoice uses the same tax rates", ErrInvalidInput)
 	}
 	return nil
 }
@@ -1484,7 +1484,7 @@ func (s *Service) FinalizeInvoice(ctx context.Context, invoiceID string) (Invoic
 	}
 	invoice.PaymentIntentID = intent.ID
 	invoice.Metadata = copyMap(invoice.Metadata)
-	invoice.Metadata["billtap_finalized_at"] = at.Format(time.RFC3339Nano)
+	invoice.Metadata["emulator_finalized_at"] = at.Format(time.RFC3339Nano)
 	updatedInvoice, createdIntent, err := s.repo.FinalizeInvoice(ctx, invoice, intent, []TimelineEntry{
 		billingTimelineEntry("invoice_finalized_"+invoice.ID, "invoice.finalized", "Invoice finalized", ObjectInvoice, invoice.ID, invoice.CustomerID, "", invoice.SubscriptionID, invoice.ID, intent.ID, map[string]string{"source": "invoice.finalize", "status": invoice.Status}, at),
 		billingTimelineEntry("invoice_payment_intent_created_"+intent.ID, "payment_intent.created", "Invoice payment intent created", ObjectPaymentIntent, intent.ID, intent.CustomerID, "", invoice.SubscriptionID, invoice.ID, intent.ID, map[string]string{"source": "invoice.finalize", "status": intent.Status}, at),
@@ -1521,11 +1521,11 @@ func (s *Service) SendInvoice(ctx context.Context, invoiceID string) (Invoice, e
 	if invoice.Metadata == nil {
 		invoice.Metadata = map[string]string{}
 	}
-	invoice.Metadata["billtap_email_sent_at"] = at.Format(time.RFC3339)
+	invoice.Metadata["emulator_email_sent_at"] = at.Format(time.RFC3339)
 	if invoice.CustomerID != "" {
 		if customer, err := s.repo.GetCustomer(ctx, invoice.CustomerID); err == nil {
 			if email := strings.TrimSpace(customer.Email); email != "" {
-				invoice.Metadata["billtap_email_recipient"] = email
+				invoice.Metadata["emulator_email_recipient"] = email
 			}
 		}
 	}
@@ -1546,11 +1546,11 @@ func (s *Service) SendInvoice(ctx context.Context, invoiceID string) (Invoice, e
 }
 
 func (s *Service) VoidInvoice(ctx context.Context, invoiceID string) (Invoice, error) {
-	return s.transitionOpenInvoice(ctx, invoiceID, "void", "invoice.voided", "Invoice voided", "invoice.void", "billtap_voided_at")
+	return s.transitionOpenInvoice(ctx, invoiceID, "void", "invoice.voided", "Invoice voided", "invoice.void", "emulator_voided_at")
 }
 
 func (s *Service) MarkInvoiceUncollectible(ctx context.Context, invoiceID string) (Invoice, error) {
-	return s.transitionOpenInvoice(ctx, invoiceID, "uncollectible", "invoice.marked_uncollectible", "Invoice marked uncollectible", "invoice.mark_uncollectible", "billtap_marked_uncollectible_at")
+	return s.transitionOpenInvoice(ctx, invoiceID, "uncollectible", "invoice.marked_uncollectible", "Invoice marked uncollectible", "invoice.mark_uncollectible", "emulator_marked_uncollectible_at")
 }
 
 func (s *Service) transitionOpenInvoice(ctx context.Context, invoiceID string, status string, action string, message string, source string, timestampKey string) (Invoice, error) {
@@ -1667,8 +1667,8 @@ func (s *Service) PayInvoice(ctx context.Context, invoiceID string, opts Invoice
 		}
 	}
 	subscription.Metadata = copyMap(subscription.Metadata)
-	subscription.Metadata["billtap_last_invoice_payment_attempt"] = at.Format(time.RFC3339Nano)
-	subscription.Metadata["billtap_last_invoice_payment_outcome"] = outcome
+	subscription.Metadata["emulator_last_invoice_payment_attempt"] = at.Format(time.RFC3339Nano)
+	subscription.Metadata["emulator_last_invoice_payment_outcome"] = outcome
 
 	timeline := invoicePaymentTimeline(subscription, invoice, intent, success, at)
 	subscription, invoice, intent, err = s.repo.UpdateInvoicePayment(ctx, subscription, invoice, intent, timeline)
@@ -1739,8 +1739,8 @@ func (s *Service) payManualInvoice(ctx context.Context, invoice Invoice, opts In
 		invoice.NextPaymentAttempt = &nextAttempt
 	}
 	invoice.Metadata = copyMap(invoice.Metadata)
-	invoice.Metadata["billtap_last_invoice_payment_attempt"] = at.Format(time.RFC3339Nano)
-	invoice.Metadata["billtap_last_invoice_payment_outcome"] = outcome
+	invoice.Metadata["emulator_last_invoice_payment_attempt"] = at.Format(time.RFC3339Nano)
+	invoice.Metadata["emulator_last_invoice_payment_outcome"] = outcome
 	timeline := []TimelineEntry{
 		billingTimelineEntry("manual_invoice_payment_intent_"+intent.ID+"_"+at.Format(time.RFC3339Nano), paymentIntentEvent(intent.Status), "Invoice payment intent "+intent.Status, ObjectPaymentIntent, intent.ID, intent.CustomerID, "", "", invoice.ID, intent.ID, map[string]string{"source": "invoice.pay", "status": intent.Status, "outcome": outcome}, at),
 	}
@@ -1860,7 +1860,7 @@ func (s *Service) UpdateTestClock(ctx context.Context, clock TestClock) (TestClo
 
 // DeleteTestClock removes a test clock and detaches it from the customers and
 // subscriptions that referenced it (DELETE /v1/test_helpers/test_clocks/{id}).
-// Stripe deletes attached objects with the clock; Billtap keeps them detached
+// Stripe deletes attached objects with the clock; Emulator keeps them detached
 // so a fixture pack can re-seed against a fresh clock reusing the same id.
 func (s *Service) DeleteTestClock(ctx context.Context, clockID string) error {
 	clockID = strings.TrimSpace(clockID)
@@ -2073,7 +2073,7 @@ func (s *Service) UpdateRefundStatus(ctx context.Context, refundID string, statu
 	}
 	refund.Status = status
 	refund.Metadata = copyMap(refund.Metadata)
-	refund.Metadata["billtap_last_status_update"] = at.Format(time.RFC3339Nano)
+	refund.Metadata["emulator_last_status_update"] = at.Format(time.RFC3339Nano)
 	return s.repo.UpdateRefund(ctx, refund, []TimelineEntry{billingTimelineEntry(
 		"refund_status_"+refund.ID+"_"+status+"_"+at.Format(time.RFC3339Nano),
 		"charge.refund.updated",
@@ -2162,7 +2162,7 @@ func (s *Service) VoidCreditNote(ctx context.Context, creditNoteID string) (Cred
 	now := s.now()
 	note.Status = "void"
 	note.Metadata = copyMap(note.Metadata)
-	note.Metadata["billtap_voided_at"] = now.Format(time.RFC3339Nano)
+	note.Metadata["emulator_voided_at"] = now.Format(time.RFC3339Nano)
 	return s.repo.UpdateCreditNote(ctx, note, []TimelineEntry{billingTimelineEntry(
 		"credit_note_voided_"+note.ID+"_"+now.Format(time.RFC3339Nano),
 		"credit_note.voided",
@@ -2730,7 +2730,7 @@ func (s *Service) cancelSubscriptionAtClock(ctx context.Context, sub Subscriptio
 	canceledAt := at
 	sub.CanceledAt = &canceledAt
 	sub.Metadata = copyMap(sub.Metadata)
-	sub.Metadata["billtap_clock_canceled_at"] = at.Format(time.RFC3339Nano)
+	sub.Metadata["emulator_clock_canceled_at"] = at.Format(time.RFC3339Nano)
 	delete(sub.Metadata, "cancel_at")
 	return s.persistSubscription(ctx, sub, []TimelineEntry{billingTimelineEntry(
 		"clock_cancel_"+sub.ID+"_"+at.Format(time.RFC3339Nano),
@@ -2761,9 +2761,9 @@ func (s *Service) activateTrialSubscriptionAtClock(ctx context.Context, sub Subs
 	sub.CurrentPeriodStart = periodStart
 	sub.CurrentPeriodEnd = periodEnd
 	sub.Metadata = copyMap(sub.Metadata)
-	sub.Metadata["billtap_trial_activated_at"] = at.Format(time.RFC3339Nano)
-	sub.Metadata["billtap_last_period_start"] = periodStart.Format(time.RFC3339Nano)
-	sub.Metadata["billtap_last_period_end"] = periodEnd.Format(time.RFC3339Nano)
+	sub.Metadata["emulator_trial_activated_at"] = at.Format(time.RFC3339Nano)
+	sub.Metadata["emulator_last_period_start"] = periodStart.Format(time.RFC3339Nano)
+	sub.Metadata["emulator_last_period_end"] = periodEnd.Format(time.RFC3339Nano)
 	return s.persistSubscription(ctx, sub, []TimelineEntry{billingTimelineEntry(
 		"clock_trial_activate_"+sub.ID+"_"+at.Format(time.RFC3339Nano),
 		"customer.subscription.updated",
@@ -2823,9 +2823,9 @@ func (s *Service) renewSubscription(ctx context.Context, sub Subscription, at ti
 	sub.Status = "active"
 	sub.CurrentPeriodStart = periodStart
 	sub.CurrentPeriodEnd = periodEnd
-	sub.Metadata["billtap_last_renewal_at"] = at.Format(time.RFC3339Nano)
-	sub.Metadata["billtap_last_renewal_period_start"] = periodStart.Format(time.RFC3339Nano)
-	sub.Metadata["billtap_last_renewal_period_end"] = periodEnd.Format(time.RFC3339Nano)
+	sub.Metadata["emulator_last_renewal_at"] = at.Format(time.RFC3339Nano)
+	sub.Metadata["emulator_last_renewal_period_start"] = periodStart.Format(time.RFC3339Nano)
+	sub.Metadata["emulator_last_renewal_period_end"] = periodEnd.Format(time.RFC3339Nano)
 
 	renewalOutcome := renewalOutcome(sub.Metadata)
 	if renewalOutcome == "" && sub.CustomerID != "" {
@@ -2863,8 +2863,8 @@ func (s *Service) renewSubscription(ctx context.Context, sub Subscription, at ti
 		nextPaymentAttempt := at.Add(24 * time.Hour)
 		invoice.NextPaymentAttempt = &nextPaymentAttempt
 		sub.Status = renewalFailureSubscriptionStatus(renewalOutcome)
-		sub.Metadata["billtap_last_renewal_outcome"] = renewalOutcome
-		sub.Metadata["billtap_next_retry_at"] = nextPaymentAttempt.Format(time.RFC3339Nano)
+		sub.Metadata["emulator_last_renewal_outcome"] = renewalOutcome
+		sub.Metadata["emulator_next_retry_at"] = nextPaymentAttempt.Format(time.RFC3339Nano)
 	}
 	intent := PaymentIntent{
 		ID:              id("pi"),
@@ -3145,7 +3145,7 @@ func (s *Service) UpdateSubscriptionItemsWithProration(ctx context.Context, req 
 			delta := ProrateDelta(newDiscounted-oldDiscounted, remaining, periodSeconds)
 			subtotalDelta := ProrateDelta(newTotal-oldTotal, remaining, periodSeconds)
 			if delta <= 0 {
-				// Downgrade / zero: no invoice (billtap does not model credit balance).
+				// Downgrade / zero: no invoice (emulator does not model credit balance).
 				shouldInvoice = false
 			} else {
 				invoiceBase = delta
@@ -3246,8 +3246,8 @@ func (s *Service) UpdateSubscriptionItemsWithProration(ctx context.Context, req 
 		nextPaymentAttempt := at.Add(24 * time.Hour)
 		invoice.NextPaymentAttempt = &nextPaymentAttempt
 		updated.Status = renewalFailureSubscriptionStatus(renewalOutcome)
-		updated.Metadata["billtap_last_renewal_outcome"] = renewalOutcome
-		updated.Metadata["billtap_next_retry_at"] = nextPaymentAttempt.Format(time.RFC3339Nano)
+		updated.Metadata["emulator_last_renewal_outcome"] = renewalOutcome
+		updated.Metadata["emulator_next_retry_at"] = nextPaymentAttempt.Format(time.RFC3339Nano)
 	}
 
 	intent := PaymentIntent{
@@ -3361,7 +3361,7 @@ func (s *Service) settlePendingRefunds(ctx context.Context, at time.Time, testCl
 		if refund.Status != "pending" || !s.refundAttachedToClock(ctx, refund, testClockID) {
 			continue
 		}
-		settleAtRaw := firstNonEmpty(refund.Metadata["billtap_settle_at"], refund.Metadata["settle_at"], refund.Metadata["available_on"])
+		settleAtRaw := firstNonEmpty(refund.Metadata["emulator_settle_at"], refund.Metadata["settle_at"], refund.Metadata["available_on"])
 		if settleAtRaw == "" {
 			continue
 		}
@@ -3382,7 +3382,7 @@ func (s *Service) settlePendingRefunds(ctx context.Context, at time.Time, testCl
 }
 
 func renewalOutcome(metadata map[string]string) string {
-	for _, key := range []string{"billtap_renewal_outcome", "renewal_outcome", "renewalOutcome"} {
+	for _, key := range []string{"emulator_renewal_outcome", "renewal_outcome", "renewalOutcome"} {
 		if value := normalizeInvoiceOutcome(metadata[key]); value != "" {
 			return value
 		}
@@ -3392,7 +3392,7 @@ func renewalOutcome(metadata map[string]string) string {
 
 // CustomerDefaultInvoiceOutcome returns the default renewal invoice outcome from customer metadata.
 func CustomerDefaultInvoiceOutcome(metadata map[string]string) string {
-	for _, key := range []string{MetadataDefaultInvoiceOutcome, "billtap_default_renewal_outcome", "default_invoice_outcome", "default_renewal_outcome"} {
+	for _, key := range []string{MetadataDefaultInvoiceOutcome, "emulator_default_renewal_outcome", "default_invoice_outcome", "default_renewal_outcome"} {
 		if value := normalizeInvoiceOutcome(metadata[key]); value != "" {
 			return value
 		}
@@ -3519,7 +3519,7 @@ func sanitizeDiscountID(value string) string {
 	return b.String()
 }
 
-// ApplyDiscounts applies Billtap's bounded Stripe-style discount subset.
+// ApplyDiscounts applies Emulator's bounded Stripe-style discount subset.
 // It supports a single effective coupon or promotion-code discount and never
 // lets the invoice total become negative. Product-scoped coupons should use
 // ApplyDiscountsWithEligibleBase with an eligible base computed from matching
@@ -4208,7 +4208,7 @@ func intentOutcomeSpec(outcome string) (checkoutOutcomeSpec, bool) {
 }
 
 func paymentIntentConfiguredOutcome(metadata map[string]string) string {
-	for _, key := range []string{MetadataPaymentIntentOutcome, "billtap_outcome"} {
+	for _, key := range []string{MetadataPaymentIntentOutcome, "emulator_outcome"} {
 		if value := strings.TrimSpace(metadata[key]); value != "" {
 			return value
 		}
@@ -4226,7 +4226,7 @@ func CustomerDefaultPaymentIntentOutcome(metadata map[string]string) string {
 	return ""
 }
 
-// IsSupportedPaymentIntentOutcome reports whether Billtap can apply outcome to a local PaymentIntent.
+// IsSupportedPaymentIntentOutcome reports whether Emulator can apply outcome to a local PaymentIntent.
 func IsSupportedPaymentIntentOutcome(outcome string) bool {
 	_, ok := intentOutcomeSpec(outcome)
 	return ok

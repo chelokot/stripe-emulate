@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 func setupCheckoutLineFixtures(t *testing.T, handler http.Handler) (customer billing.Customer, price billing.Price) {

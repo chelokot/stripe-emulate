@@ -2,3 +2,9 @@ Billtap
 Copyright 2026 MidageDev
 
 This product includes software developed by the Billtap contributors.
+
+stripe-emulate
+Copyright 2026 Andrii Vlasenko
+
+This product is a modified version of Billtap. Changes are recorded in the
+git history of https://github.com/chelokot/stripe-emulate.

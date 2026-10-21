@@ -341,7 +341,7 @@ export const dashboardObjects: Record<DashboardObjectType, DashboardObjectRecord
         { label: "Event ID", value: "evt_test_61" },
         { label: "Event type", value: "invoice.payment_succeeded" },
         { label: "Source", value: "checkout" },
-        { label: "Idempotency key", value: "billtap:invoice.payment_succeeded:in_test_61" },
+        { label: "Idempotency key", value: "emulator:invoice.payment_succeeded:in_test_61" },
       ],
     },
     {
@@ -357,7 +357,7 @@ export const dashboardObjects: Record<DashboardObjectType, DashboardObjectRecord
         { label: "Event ID", value: "evt_test_refund" },
         { label: "Event type", value: "charge.refunded" },
         { label: "Source", value: "connect" },
-        { label: "Idempotency key", value: "billtap:charge.refunded:ch_test_refund" },
+        { label: "Idempotency key", value: "emulator:charge.refunded:ch_test_refund" },
       ],
     },
   ],

@@ -14,15 +14,15 @@ const navItems = [
 ] as const;
 
 export function AppShell({ active, children }: AppShellProps) {
-  const logoUrl = `${import.meta.env.BASE_URL}billtap-mark.svg`;
+  const logoUrl = `${import.meta.env.BASE_URL}emulator-mark.svg`;
 
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="Billtap surfaces">
-        <a className="brand" href={appHref("dashboard/")} aria-label="Billtap dashboard">
+      <aside className="sidebar" aria-label="Emulator surfaces">
+        <a className="brand" href={appHref("dashboard/")} aria-label="Emulator dashboard">
           <img src={logoUrl} alt="" />
           <span>
-            <strong>Billtap</strong>
+            <strong>Emulator</strong>
             <small>Billing lab</small>
           </span>
         </a>

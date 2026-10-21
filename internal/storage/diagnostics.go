@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/midagedev/billtap/internal/diagnostics"
+	"github.com/chelokot/stripe-emulate/internal/diagnostics"
 )
 
 var _ diagnostics.Repository = (*SQLiteStore)(nil)

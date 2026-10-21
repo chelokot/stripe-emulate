@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/midagedev/billtap/internal/api"
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/config"
-	"github.com/midagedev/billtap/internal/diagnostics"
-	"github.com/midagedev/billtap/internal/storage"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/api"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/config"
+	"github.com/chelokot/stripe-emulate/internal/diagnostics"
+	"github.com/chelokot/stripe-emulate/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 type Options struct {
@@ -225,10 +225,9 @@ func (s *Server) buildAPIHandler(store storage.Store) (http.Handler, error) {
 	var webhookService *webhooks.Service
 	if webhookRepo, ok := store.(webhooks.Repository); ok {
 		webhookService = webhooks.NewServiceWithOptions(webhookRepo, webhooks.ServiceOptions{
-			StoreRawPayloads:    s.cfg.RawPayloadStorage != config.RawPayloadMetadataOnly,
-			RetentionDays:       s.cfg.RetentionDays,
-			SignatureHeaderName: s.cfg.WebhookSignatureHeader,
-			APIVersion:          s.cfg.WebhookAPIVersion,
+			StoreRawPayloads: s.cfg.RawPayloadStorage != config.RawPayloadMetadataOnly,
+			RetentionDays:    s.cfg.RetentionDays,
+			APIVersion:       s.cfg.WebhookAPIVersion,
 		})
 		s.webhookMu.Lock()
 		s.webhookServices = append(s.webhookServices, webhookService)
@@ -342,7 +341,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	assetPath := s.prefixedPath(r, "/assets/app.js")
-	_, _ = w.Write([]byte(`<!doctype html><html><head><title>Billtap</title></head><body><div id="root" data-billtap-app="stub"></div><script type="module" src="` + assetPath + `"></script></body></html>`))
+	_, _ = w.Write([]byte(`<!doctype html><html><head><title>Emulator</title></head><body><div id="root" data-emulator-app="stub"></div><script type="module" src="` + assetPath + `"></script></body></html>`))
 }
 
 func (s *Server) handleHostedCheckout(w http.ResponseWriter, r *http.Request) {
@@ -463,7 +462,7 @@ func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`console.info("Billtap React asset path stub");`))
+			_, _ = w.Write([]byte(`console.info("Emulator React asset path stub");`))
 		}
 		return
 	}

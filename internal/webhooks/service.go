@@ -21,15 +21,14 @@ var (
 )
 
 type Service struct {
-	repo                Repository
-	now                 func() time.Time
-	client              *http.Client
-	deliverySemaphore   chan struct{}
-	storeRawPayloads    bool
-	retentionDays       int
-	signatureHeaderName string
-	apiVersion          string
-	wg                  sync.WaitGroup
+	repo              Repository
+	now               func() time.Time
+	client            *http.Client
+	deliverySemaphore chan struct{}
+	storeRawPayloads  bool
+	retentionDays     int
+	apiVersion        string
+	wg                sync.WaitGroup
 }
 
 func NewService(repo Repository) *Service {
@@ -47,13 +46,12 @@ func NewServiceWithOptions(repo Repository, opts ServiceOptions) *Service {
 		opts.DeliveryConcurrency = 2
 	}
 	return &Service{
-		repo:                repo,
-		now:                 func() time.Time { return time.Now().UTC() },
-		deliverySemaphore:   make(chan struct{}, opts.DeliveryConcurrency),
-		storeRawPayloads:    opts.StoreRawPayloads,
-		retentionDays:       opts.RetentionDays,
-		signatureHeaderName: NormalizeSignatureHeaderName(opts.SignatureHeaderName),
-		apiVersion:          opts.APIVersion,
+		repo:              repo,
+		now:               func() time.Time { return time.Now().UTC() },
+		deliverySemaphore: make(chan struct{}, opts.DeliveryConcurrency),
+		storeRawPayloads:  opts.StoreRawPayloads,
+		retentionDays:     opts.RetentionDays,
+		apiVersion:        opts.APIVersion,
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -139,7 +137,7 @@ func (s *Service) CreateEvent(ctx context.Context, in EventInput) (Event, []Deli
 			IdempotencyKey: in.IdempotencyKey,
 		},
 		Data: EventData{Object: in.ObjectPayload},
-		Billtap: EventMetadata{
+		Emulator: EventMetadata{
 			ScenarioRunID: in.ScenarioRunID,
 			Source:        in.Source,
 			Sequence:      in.Sequence,
@@ -493,8 +491,8 @@ func (s *Service) createAttempt(ctx context.Context, event Event, endpoint Endpo
 		ScheduledAt:   scheduledAt,
 		RequestURL:    endpoint.URL,
 		RequestHeaders: map[string]string{
-			s.signatureHeaderName: signatureHeader,
-			"Content-Type":        "application/json",
+			SignatureHeaderName: signatureHeader,
+			"Content-Type":      "application/json",
 		},
 		RequestBody: event.RawPayload,
 		Metadata:    metadata,

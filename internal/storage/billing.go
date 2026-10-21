@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 const invoiceItemColumns = `id, customer_id, invoice_id, amount, currency, description, metadata, created_at, price_id, product_id, quantity, subscription_id, tax_rates, subscription_item_id, proration, period_start, period_end`

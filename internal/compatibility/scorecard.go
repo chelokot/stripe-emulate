@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/api"
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/storage"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/api"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 const (
@@ -36,11 +36,11 @@ const (
 )
 
 var statusDefinitions = map[Status]string{
-	StatusImported:    "case ran against Billtap and matched the normalized expectation",
+	StatusImported:    "case ran against Emulator and matched the normalized expectation",
 	StatusSkipped:     "case is in the corpus but was not run by this offline scorecard",
-	StatusUnsupported: "case documents an unsupported provider behavior from docs/COMPATIBILITY.md",
+	StatusUnsupported: "case documents an unsupported provider behavior",
 	StatusMismatch:    "case ran but normalized actual behavior differed from the expectation",
-	StatusError:       "case could not run because the scorecard runner or Billtap returned an unexpected internal error",
+	StatusError:       "case could not run because the scorecard runner or Emulator returned an unexpected internal error",
 }
 
 type Options struct {
@@ -78,7 +78,6 @@ type CaseResult struct {
 	Level           string       `json:"level"`
 	Status          Status       `json:"status"`
 	ReleaseBlocking bool         `json:"release_blocking"`
-	Reference       string       `json:"reference,omitempty"`
 	Reason          string       `json:"reason,omitempty"`
 	Expected        *Observation `json:"expected,omitempty"`
 	Actual          *Observation `json:"actual,omitempty"`
@@ -137,7 +136,6 @@ type caseSpec struct {
 	Category        string
 	Level           string
 	ReleaseBlocking bool
-	Reference       string
 	SkipReason      string
 	Unsupported     string
 	Steps           []requestSpec
@@ -171,7 +169,7 @@ func Generate(ctx context.Context, opts Options) (Scorecard, error) {
 	}
 
 	scorecard := Scorecard{
-		Name:             "Billtap Stripe-like compatibility scorecard",
+		Name:             "Emulator Stripe-like compatibility scorecard",
 		ScorecardVersion: ScorecardVersion,
 		GeneratedAt:      now(),
 		StatusMap:        stringStatusDefinitions(),
@@ -294,7 +292,6 @@ func runCase(ctx context.Context, spec caseSpec, now func() time.Time) (result C
 		Category:        spec.Category,
 		Level:           spec.Level,
 		ReleaseBlocking: spec.ReleaseBlocking,
-		Reference:       spec.Reference,
 	}
 	defer func() {
 		result.Duration = now().Sub(started).String()
@@ -485,7 +482,7 @@ func (h *harness) do(spec requestSpec) (ReplayStep, error) {
 	}
 
 	req := httptest.NewRequest(method, spec.Path, body)
-	req.Host = "billtap.local"
+	req.Host = "emulator.local"
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}

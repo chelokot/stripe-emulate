@@ -53,7 +53,7 @@ jobs:
 
       - name: Generate Stripe API inventory
         run: |
-          go run ./cmd/billtap compatibility inventory \
+          go run ./cmd/stripe-emulate compatibility inventory \
             --openapi /tmp/stripe-openapi.spec3.json \
             --output-dir dist/stripe-api-inventory \
             --source "${{ steps.source.outputs.url }}"

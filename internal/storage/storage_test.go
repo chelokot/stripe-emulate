@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 func TestSQLiteMigrationsRun(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestMemoryStoreWorksInTests(t *testing.T) {
 
 func TestPendingInvoiceItemAllowsNullInvoiceID(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestPendingInvoiceItemAllowsNullInvoiceID(t *testing.T) {
 
 func TestCheckoutSessionMetadataDefaultAndRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestCheckoutSessionMetadataDefaultAndRoundTrip(t *testing.T) {
 
 func TestDirectIntentSchemaAllowsOptionalCustomerAndPreservesForeignKeys(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestDirectIntentSchemaAllowsOptionalCustomerAndPreservesForeignKeys(t *test
 
 func TestUpdateInvoicePaymentRejectsStaleOpenAttempt(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestUpdateInvoicePaymentRejectsStaleOpenAttempt(t *testing.T) {
 // 500 and wedged the fixture: the clock had already moved, so every later advance collided again.
 func TestRecordTimelineIsIdempotentForRepeatedEventIDs(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestRecordTimelineIsIdempotentForRepeatedEventIDs(t *testing.T) {
 
 func TestLocalEvidenceRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}

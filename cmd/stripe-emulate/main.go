@@ -13,14 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/compatibility"
-	"github.com/midagedev/billtap/internal/config"
-	"github.com/midagedev/billtap/internal/fixtures"
-	"github.com/midagedev/billtap/internal/scenarios"
-	"github.com/midagedev/billtap/internal/server"
-	"github.com/midagedev/billtap/internal/storage"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/compatibility"
+	"github.com/chelokot/stripe-emulate/internal/config"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/scenarios"
+	"github.com/chelokot/stripe-emulate/internal/server"
+	"github.com/chelokot/stripe-emulate/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 func main() {
@@ -84,7 +84,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("starting billtap", "addr", cfg.Addr, "environment", cfg.Environment)
+	slog.Info("starting emulator", "addr", cfg.Addr, "environment", cfg.Environment)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("serve", "error", err)
 		os.Exit(1)
@@ -95,7 +95,7 @@ func runSeed(args []string) int {
 	packPath, runIDFlag, databaseURL, configPath, err := parseSeedArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, "usage: billtap seed --pack path [--run-id id] [--database-url dsn] [--config path]")
+		fmt.Fprintln(os.Stderr, "usage: stripe-emulate seed --pack path [--run-id id] [--database-url dsn] [--config path]")
 		return scenarios.ExitInvalidConfig
 	}
 	cfg, err := config.Load(configPath)
@@ -212,7 +212,7 @@ func firstSeedValue(values ...string) string {
 
 func runCompatibility(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: billtap compatibility <scorecard|inventory> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: stripe-emulate compatibility <scorecard|inventory> [flags]")
 		return scenarios.ExitInvalidConfig
 	}
 
@@ -222,7 +222,7 @@ func runCompatibility(args []string) int {
 	case "inventory":
 		return runCompatibilityInventory(args[1:])
 	default:
-		fmt.Fprintln(os.Stderr, "usage: billtap compatibility <scorecard|inventory> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: stripe-emulate compatibility <scorecard|inventory> [flags]")
 		return scenarios.ExitInvalidConfig
 	}
 }
@@ -231,7 +231,7 @@ func runCompatibilityScorecard(args []string) int {
 	outputDir, err := parseCompatibilityScorecardArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, "usage: billtap compatibility scorecard [--output-dir path]")
+		fmt.Fprintln(os.Stderr, "usage: stripe-emulate compatibility scorecard [--output-dir path]")
 		return scenarios.ExitInvalidConfig
 	}
 
@@ -258,7 +258,7 @@ func runCompatibilityInventory(args []string) int {
 	openAPIPath, outputDir, source, err := parseCompatibilityInventoryArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, "usage: billtap compatibility inventory --openapi path [--output-dir path] [--source label]")
+		fmt.Fprintln(os.Stderr, "usage: stripe-emulate compatibility inventory --openapi path [--output-dir path] [--source label]")
 		return scenarios.ExitInvalidConfig
 	}
 
@@ -271,13 +271,13 @@ func runCompatibilityInventory(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return scenarios.ExitRuntimeFailure
 	}
-	fmt.Fprintf(os.Stdout, "compatibility inventory wrote %s operations=%d implemented=%d inventory_only=%d schema_validated=%d billtap_only=%d implemented_percent=%.1f schema_validated_percent=%.1f\n",
+	fmt.Fprintf(os.Stdout, "compatibility inventory wrote %s operations=%d implemented=%d inventory_only=%d schema_validated=%d emulator_only=%d implemented_percent=%.1f schema_validated_percent=%.1f\n",
 		outputDir,
 		inventory.Summary.TotalOperations,
 		inventory.Summary.ImplementedOperations,
 		inventory.Summary.InventoryOnlyOperations,
 		inventory.Summary.SchemaValidatedOperations,
-		inventory.Summary.BilltapOnlyRoutes,
+		inventory.Summary.EmulatorOnlyRoutes,
 		inventory.Summary.ImplementedPercent,
 		inventory.Summary.SchemaValidatedPercent,
 	)
@@ -350,14 +350,14 @@ func parseCompatibilityInventoryArgs(args []string) (openAPIPath string, outputD
 
 func runScenario(args []string) int {
 	if len(args) == 0 || args[0] != "run" {
-		fmt.Fprintln(os.Stderr, "usage: billtap scenario run <file> [--report-json path] [--report-md path] [--database-url dsn]")
+		fmt.Fprintln(os.Stderr, "usage: stripe-emulate scenario run <file> [--report-json path] [--report-md path] [--database-url dsn]")
 		return scenarios.ExitInvalidConfig
 	}
 
 	scenarioPath, reportJSON, reportMD, databaseURL, err := parseScenarioRunArgs(args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, "usage: billtap scenario run <file> [--report-json path] [--report-md path] [--database-url dsn]")
+		fmt.Fprintln(os.Stderr, "usage: stripe-emulate scenario run <file> [--report-json path] [--report-md path] [--database-url dsn]")
 		return scenarios.ExitInvalidConfig
 	}
 

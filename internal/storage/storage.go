@@ -61,7 +61,7 @@ func (s *SQLiteStore) DB() *sql.DB {
 
 func OpenSQLite(ctx context.Context, dsn string) (*SQLiteStore, error) {
 	if dsn == "" {
-		dsn = ".billtap/billtap.db"
+		dsn = ".emulator/emulator.db"
 	}
 	if err := ensureParentDir(dsn); err != nil {
 		return nil, err

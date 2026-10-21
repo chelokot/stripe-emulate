@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/diagnostics"
-	"github.com/midagedev/billtap/internal/fixtures"
-	"github.com/midagedev/billtap/internal/scenarios"
-	"github.com/midagedev/billtap/internal/security"
-	"github.com/midagedev/billtap/internal/storage"
-	"github.com/midagedev/billtap/internal/webhooks"
-	"github.com/midagedev/billtap/internal/webhooks/webhookstest"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/diagnostics"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/scenarios"
+	"github.com/chelokot/stripe-emulate/internal/security"
+	"github.com/chelokot/stripe-emulate/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/webhooks/webhookstest"
 )
 
 func TestCheckoutMVPFlow(t *testing.T) {
@@ -288,14 +288,14 @@ func TestCheckoutPaymentMode(t *testing.T) {
 		if meta["order_id"] != "ord_1" {
 			t.Fatalf("pi metadata=%v, want order_id=ord_1", meta)
 		}
-		// User metadata only at unprefixed surface; house snapshot uses billtap_*.
+		// User metadata only at unprefixed surface; house snapshot uses emulator_*.
 		for _, leaked := range []string{"setup_future_usage", "description", "receipt_email", "checkout_session"} {
 			if _, ok := meta[leaked]; ok {
 				t.Fatalf("pi metadata must not include unprefixed %q: %#v", leaked, meta)
 			}
 		}
-		if meta["billtap_checkout_session"] == nil || meta["billtap_checkout_session"] == "" {
-			t.Fatalf("pi metadata missing billtap_checkout_session: %#v", meta)
+		if meta["emulator_checkout_session"] == nil || meta["emulator_checkout_session"] == "" {
+			t.Fatalf("pi metadata missing emulator_checkout_session: %#v", meta)
 		}
 		// Top-level PI contract keys always present (string|null).
 		if _, ok := pi["description"]; !ok {
@@ -345,8 +345,8 @@ func TestCheckoutPaymentMode(t *testing.T) {
 		if meta["setup_future_usage"] != nil {
 			t.Fatalf("metadata must not contain unprefixed setup_future_usage: %#v", meta)
 		}
-		if meta["billtap_setup_future_usage"] != "off_session" {
-			t.Fatalf("metadata billtap_setup_future_usage=%v, want off_session", meta["billtap_setup_future_usage"])
+		if meta["emulator_setup_future_usage"] != "off_session" {
+			t.Fatalf("metadata emulator_setup_future_usage=%v, want off_session", meta["emulator_setup_future_usage"])
 		}
 		pmID, _ := pi["payment_method"].(string)
 		if pmID == "" {
@@ -728,15 +728,15 @@ func TestRunConfigEndpointControlsPublicBase(t *testing.T) {
 
 	updated := postForm[runConfigResponse](t, handler, "/v1/config", url.Values{
 		"public_base_url":  {"https://localhost:19029/"},
-		"public_base_path": {"/billtap"},
+		"public_base_path": {"/emulator"},
 	})
-	if updated.PublicBaseURL != "https://localhost:19029" || updated.PublicBasePath != "/billtap" {
+	if updated.PublicBaseURL != "https://localhost:19029" || updated.PublicBasePath != "/emulator" {
 		t.Fatalf("updated config = %#v, want normalized base url and path", updated)
 	}
-	if updated.EffectivePublicBase != "https://localhost:19029/billtap" {
+	if updated.EffectivePublicBase != "https://localhost:19029/emulator" {
 		t.Fatalf("updated effective base = %v, want combined base", updated.EffectivePublicBase)
 	}
-	if alias := getJSON[runConfigResponse](t, handler, "/api/config"); alias.EffectivePublicBase != "https://localhost:19029/billtap" {
+	if alias := getJSON[runConfigResponse](t, handler, "/api/config"); alias.EffectivePublicBase != "https://localhost:19029/emulator" {
 		t.Fatalf("alias effective base = %v, want combined base", alias.EffectivePublicBase)
 	}
 
@@ -757,7 +757,7 @@ func TestRunConfigEndpointControlsPublicBase(t *testing.T) {
 		"success_url":             {"http://app.test/success"},
 		"cancel_url":              {"http://app.test/cancel"},
 	})
-	if !strings.HasPrefix(checkout.URL, "https://localhost:19029/billtap/checkout/") {
+	if !strings.HasPrefix(checkout.URL, "https://localhost:19029/emulator/checkout/") {
 		t.Fatalf("checkout url = %q, want run-configured public base", checkout.URL)
 	}
 	// Caller-provided redirect targets are never rewritten to the run base.
@@ -767,7 +767,7 @@ func TestRunConfigEndpointControlsPublicBase(t *testing.T) {
 	portal := postForm[struct {
 		URL string `json:"url"`
 	}](t, handler, "/v1/billing_portal/sessions", url.Values{"customer": {customer.ID}})
-	if !strings.HasPrefix(portal.URL, "https://localhost:19029/billtap/portal?") {
+	if !strings.HasPrefix(portal.URL, "https://localhost:19029/emulator/portal?") {
 		t.Fatalf("portal url = %q, want run-configured public base", portal.URL)
 	}
 
@@ -791,7 +791,7 @@ func TestRunConfiguredBaseRewritesLocalRedirects(t *testing.T) {
 
 	postForm[runConfigResponse](t, handler, "/v1/config", url.Values{
 		"public_base_url":  {"https://localhost:18689"},
-		"public_base_path": {"/billtap"},
+		"public_base_path": {"/emulator"},
 	})
 
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
@@ -815,27 +815,27 @@ func TestRunConfiguredBaseRewritesLocalRedirects(t *testing.T) {
 	// Retrieve keeps the stored success_url and adds the rewritten link for the
 	// hosted page: only the origin changes, the public base path is not added.
 	fetched := getJSON[struct {
-		SuccessURL       string `json:"success_url"`
-		BilltapReturnURL string `json:"billtap_return_url"`
+		SuccessURL        string `json:"success_url"`
+		EmulatorReturnURL string `json:"emulator_return_url"`
 	}](t, handler, "/v1/checkout/sessions/"+created.ID)
 	if fetched.SuccessURL != "https://localhost:8080/checkout-success?step=done" {
 		t.Fatalf("retrieved success_url = %q, want stored caller value", fetched.SuccessURL)
 	}
-	if fetched.BilltapReturnURL != "https://localhost:18689/checkout-success?step=done" {
-		t.Fatalf("billtap_return_url = %q, want run origin with caller path/query", fetched.BilltapReturnURL)
+	if fetched.EmulatorReturnURL != "https://localhost:18689/checkout-success?step=done" {
+		t.Fatalf("emulator_return_url = %q, want run origin with caller path/query", fetched.EmulatorReturnURL)
 	}
 
 	completion := postJSON[struct {
-		Session          billing.CheckoutSession `json:"session"`
-		BilltapReturnURL string                  `json:"billtap_return_url"`
+		Session           billing.CheckoutSession `json:"session"`
+		EmulatorReturnURL string                  `json:"emulator_return_url"`
 	}](t, handler, "/api/checkout/sessions/"+created.ID+"/complete", map[string]string{
 		"outcome": "payment_succeeded",
 	})
 	if completion.Session.SuccessURL != "https://localhost:8080/checkout-success?step=done" {
 		t.Fatalf("completed success_url = %q, want stored caller value", completion.Session.SuccessURL)
 	}
-	if completion.BilltapReturnURL != "https://localhost:18689/checkout-success?step=done" {
-		t.Fatalf("completion billtap_return_url = %q, want rewritten link", completion.BilltapReturnURL)
+	if completion.EmulatorReturnURL != "https://localhost:18689/checkout-success?step=done" {
+		t.Fatalf("completion emulator_return_url = %q, want rewritten link", completion.EmulatorReturnURL)
 	}
 
 	// Portal: the response field keeps the caller value, the hosted URL query
@@ -887,8 +887,8 @@ func TestLocalRedirectRewriteSkipsExternalAndUnconfigured(t *testing.T) {
 	})
 	externalID, _ := seedSession(configured, "https://accounts.example.com/checkout-success")
 	external := getJSON[map[string]any](t, configured, "/v1/checkout/sessions/"+externalID)
-	if _, ok := external["billtap_return_url"]; ok {
-		t.Fatalf("external success_url got billtap_return_url = %v, want none", external["billtap_return_url"])
+	if _, ok := external["emulator_return_url"]; ok {
+		t.Fatalf("external success_url got emulator_return_url = %v, want none", external["emulator_return_url"])
 	}
 
 	// Without a run config, localhost redirects stay untouched even though the
@@ -896,8 +896,8 @@ func TestLocalRedirectRewriteSkipsExternalAndUnconfigured(t *testing.T) {
 	unconfigured := newTestHandlerWithOptions(t, Options{PublicBaseURL: "http://127.0.0.1:18080"})
 	localID, customerID := seedSession(unconfigured, "https://localhost:8080/checkout-success")
 	local := getJSON[map[string]any](t, unconfigured, "/v1/checkout/sessions/"+localID)
-	if _, ok := local["billtap_return_url"]; ok {
-		t.Fatalf("unconfigured run got billtap_return_url = %v, want none", local["billtap_return_url"])
+	if _, ok := local["emulator_return_url"]; ok {
+		t.Fatalf("unconfigured run got emulator_return_url = %v, want none", local["emulator_return_url"])
 	}
 	if got := local["success_url"]; got != "https://localhost:8080/checkout-success" {
 		t.Fatalf("unconfigured success_url = %v, want caller value", got)
@@ -923,7 +923,7 @@ func TestRunConfigRejectsInvalidPublicBase(t *testing.T) {
 	for name, values := range map[string]url.Values{
 		"relative url":         {"public_base_url": {"localhost:19029"}},
 		"url with query":       {"public_base_url": {"https://localhost:19029?x=1"}},
-		"path without url":     {"public_base_path": {"/billtap"}},
+		"path without url":     {"public_base_path": {"/emulator"}},
 		"path with scheme":     {"public_base_url": {"https://localhost:19029"}, "public_base_path": {"https://other"}},
 		"url with credentials": {"public_base_url": {"https://user:pw@localhost:19029"}},
 	} {
@@ -952,7 +952,7 @@ func TestPublicBaseHeaderOverridesGlobalBase(t *testing.T) {
 		"line_items[0][price]":    {price.ID},
 		"line_items[0][quantity]": {"1"},
 	}
-	headers := map[string]string{"X-Billtap-Public-Base-Url": "https://localhost:18131"}
+	headers := map[string]string{"X-Emulator-Public-Base-Url": "https://localhost:18131"}
 
 	status, body, _ := postFormStatusWithResponseHeaders(t, handler, "/v1/checkout/sessions", sessionValues, headers)
 	if status != http.StatusOK {
@@ -1369,7 +1369,7 @@ func TestDirectPaymentIntentAndSetupIntentStateMachines(t *testing.T) {
 
 	defaultOutcomeCustomer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 		"email": {"customer-default-outcome@example.test"},
-		"metadata[billtap_default_payment_intent_outcome]": {"card_declined"},
+		"metadata[emulator_default_payment_intent_outcome]": {"card_declined"},
 	})
 	customerDefaultDeclined := postForm[struct {
 		Status           string            `json:"status"`
@@ -1397,7 +1397,7 @@ func TestDirectPaymentIntentAndSetupIntentStateMachines(t *testing.T) {
 		"currency": {"usd"},
 		"customer": {defaultOutcomeCustomer.ID},
 		"confirm":  {"true"},
-		"metadata[billtap_payment_intent_outcome]": {"requires_action"},
+		"metadata[emulator_payment_intent_outcome]": {"requires_action"},
 	})
 	if customerDefaultOverride.Status != "requires_action" || customerDefaultOverride.Metadata[billing.MetadataPaymentIntentOutcome] != "requires_action" || customerDefaultOverride.PaymentMethod != "pm_card_threeDSecure2Required" || customerDefaultOverride.NextAction["type"] != "use_stripe_sdk" {
 		t.Fatalf("customer default override intent = %#v, want per-intent outcome to win", customerDefaultOverride)
@@ -1407,8 +1407,8 @@ func TestDirectPaymentIntentAndSetupIntentStateMachines(t *testing.T) {
 		"amount":   {"2700"},
 		"currency": {"usd"},
 		"customer": {customer.ID},
-		"metadata[billtap_payment_intent_outcome]": {"card_declined"},
-		"metadata[fixture_ref]":                    {"deferred-decline"},
+		"metadata[emulator_payment_intent_outcome]": {"card_declined"},
+		"metadata[fixture_ref]":                     {"deferred-decline"},
 	})
 	if deferredDecline.Status != "requires_payment_method" || deferredDecline.Metadata[billing.MetadataPaymentIntentOutcome] != "card_declined" {
 		t.Fatalf("deferred decline intent = %#v, want stored outcome metadata without confirmation", deferredDecline)
@@ -1460,9 +1460,9 @@ func TestDirectPaymentIntentAndSetupIntentStateMachines(t *testing.T) {
 		"currency": {"usd"},
 		"customer": {customer.ID},
 		"confirm":  {"true"},
-		"metadata[billtap_payment_intent_outcome]": {"requires_action"},
-		"billtap_next_action_type":                 {"redirect_to_url"},
-		"return_url":                               {"http://app.example.test/return"},
+		"metadata[emulator_payment_intent_outcome]": {"requires_action"},
+		"emulator_next_action_type":                 {"redirect_to_url"},
+		"return_url":                                {"http://app.example.test/return"},
 	})
 	if redirectSCA.Status != "requires_action" || redirectSCA.NextAction["type"] != "redirect_to_url" {
 		t.Fatalf("redirect SCA intent = %#v, want redirect_to_url next_action", redirectSCA)
@@ -2242,10 +2242,10 @@ func TestConnectPlatformResourceCompatibility(t *testing.T) {
 		Capabilities   map[string]string `json:"capabilities"`
 		Metadata       map[string]string `json:"metadata"`
 	}](t, handler, "/v1/account")
-	if platformAccount.ID != "acct_billtap_platform" || platformAccount.Object != "account" || platformAccount.Type != "standard" || !platformAccount.ChargesEnabled || !platformAccount.PayoutsEnabled {
+	if platformAccount.ID != "acct_emulator_platform" || platformAccount.Object != "account" || platformAccount.Type != "standard" || !platformAccount.ChargesEnabled || !platformAccount.PayoutsEnabled {
 		t.Fatalf("platform account = %#v, want deterministic local platform account", platformAccount)
 	}
-	if platformAccount.Capabilities["card_payments"] != "active" || platformAccount.Capabilities["transfers"] != "active" || platformAccount.Metadata["billtap_account"] != "platform" {
+	if platformAccount.Capabilities["card_payments"] != "active" || platformAccount.Capabilities["transfers"] != "active" || platformAccount.Metadata["emulator_account"] != "platform" {
 		t.Fatalf("platform account capabilities/metadata = %#v/%#v", platformAccount.Capabilities, platformAccount.Metadata)
 	}
 
@@ -3553,7 +3553,7 @@ func TestBillingPortalSessionStripeLikeShapeAndValidation(t *testing.T) {
 		t.Fatalf("portal session locale/on_behalf_of/return_url = %#v", session)
 	}
 	if urlValue, _ := session["url"].(string); !strings.HasPrefix(urlValue, "http://127.0.0.1:18080/portal?") {
-		t.Fatalf("portal URL = %q, want hosted Billtap portal URL", urlValue)
+		t.Fatalf("portal URL = %q, want hosted Emulator portal URL", urlValue)
 	}
 
 	tests := []struct {
@@ -4065,13 +4065,13 @@ func TestExpandedStripeSurfaceSimulations(t *testing.T) {
 		t.Fatalf("subscription schedule = %#v, want active schedule", schedule)
 	}
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			ScheduledCount int `json:"scheduled_count"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_schedule/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(subscription.CurrentPeriodEnd+1, 10)},
 	})
-	if advance.BilltapAdvanceResult.ScheduledCount != 1 {
+	if advance.EmulatorAdvanceResult.ScheduledCount != 1 {
 		t.Fatalf("clock advance = %#v, want scheduled phase applied", advance)
 	}
 	updatedSubscription := getJSON[struct {
@@ -4269,17 +4269,17 @@ func TestDiscountApplicationAcrossCheckoutPreviewRenewalAndDelete(t *testing.T) 
 		t.Fatalf("discounted preview = %#v, want half-off proration", preview)
 	}
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal int64 `json:"subtotal"`
 					Total    int64 `json:"total"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_discount/advance", url.Values{"frozen_time": {strconv.FormatInt(time.Date(2030, 2, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)}})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 || advance.BilltapAdvanceResult.Renewals[0].Invoice.Subtotal != 2000 || advance.BilltapAdvanceResult.Renewals[0].Invoice.Total != 1000 {
-		t.Fatalf("discounted renewal = %#v, want half-off renewal invoice", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 || advance.EmulatorAdvanceResult.Renewals[0].Invoice.Subtotal != 2000 || advance.EmulatorAdvanceResult.Renewals[0].Invoice.Total != 1000 {
+		t.Fatalf("discounted renewal = %#v, want half-off renewal invoice", advance.EmulatorAdvanceResult.Renewals)
 	}
 	deleted := deleteJSON[struct {
 		Object  string `json:"object"`
@@ -4490,7 +4490,7 @@ func TestCouponAppliesToProductsAndCheckoutSessionAmounts(t *testing.T) {
 		t.Fatalf("subscription discount metadata applies_to = %#v, want %s", subscription.Metadata[billing.MetadataDiscountAppliesTo], productMatch.ID)
 	}
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal       int64 `json:"subtotal"`
@@ -4498,14 +4498,14 @@ func TestCouponAppliesToProductsAndCheckoutSessionAmounts(t *testing.T) {
 					DiscountAmount int64 `json:"discount_amount"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_scoped/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(time.Date(2031, 2, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)},
 	})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("scoped renewal = %#v, want one renewal", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("scoped renewal = %#v, want one renewal", advance.EmulatorAdvanceResult.Renewals)
 	}
-	renewal := advance.BilltapAdvanceResult.Renewals[0].Invoice
+	renewal := advance.EmulatorAdvanceResult.Renewals[0].Invoice
 	if renewal.Subtotal != 7000 || renewal.DiscountAmount != 1000 || renewal.Total != 6000 {
 		t.Fatalf("scoped renewal invoice = %#v, want subtotal=7000 discount=1000 total=6000", renewal)
 	}
@@ -5125,7 +5125,7 @@ func TestInvoiceBackedOneTimePaymentFlow(t *testing.T) {
 	if failed.Status != "open" || failed.AmountPaid != 0 || failed.AmountDue != 100 || len(failed.Payments.Data) != 1 {
 		t.Fatalf("failed invoice = %#v, want open invoice with amount due", failed)
 	}
-	if failed.Metadata["billtap_last_invoice_payment_outcome"] != "card_declined" {
+	if failed.Metadata["emulator_last_invoice_payment_outcome"] != "card_declined" {
 		t.Fatalf("failed invoice metadata = %#v, want configured outcome to win over payment_method", failed.Metadata)
 	}
 	failedPI := failed.Payments.Data[0].Payment.PaymentIntent
@@ -5147,7 +5147,7 @@ func TestInvoiceBackedOneTimePaymentFlow(t *testing.T) {
 	if action.Status != "open" || len(action.Payments.Data) != 1 || action.Payments.Data[0].Payment.PaymentIntent.Status != "requires_action" || action.ConfirmationSecret == nil || action.ConfirmationSecret.ClientSecret == "" {
 		t.Fatalf("requires-action invoice = %#v, want open invoice with requires_action intent and confirmation secret", action)
 	}
-	if action.Metadata["billtap_last_invoice_payment_outcome"] != "requires_action" {
+	if action.Metadata["emulator_last_invoice_payment_outcome"] != "requires_action" {
 		t.Fatalf("requires-action invoice metadata = %#v, want configured outcome to win over payment_method", action.Metadata)
 	}
 }
@@ -5689,14 +5689,14 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if finalized.Status != "open" {
 		t.Fatalf("finalized send_invoice = %#v, want open", finalized)
 	}
-	if finalized.Metadata["billtap_email_sent_at"] == "" {
-		t.Fatalf("finalized metadata missing billtap_email_sent_at: %#v", finalized.Metadata)
+	if finalized.Metadata["emulator_email_sent_at"] == "" {
+		t.Fatalf("finalized metadata missing emulator_email_sent_at: %#v", finalized.Metadata)
 	}
-	if finalized.Metadata["billtap_email_recipient"] != "send-invoice@example.test" {
-		t.Fatalf("finalized recipient = %q, want customer email", finalized.Metadata["billtap_email_recipient"])
+	if finalized.Metadata["emulator_email_recipient"] != "send-invoice@example.test" {
+		t.Fatalf("finalized recipient = %q, want customer email", finalized.Metadata["emulator_email_recipient"])
 	}
-	if _, err := time.Parse(time.RFC3339, finalized.Metadata["billtap_email_sent_at"]); err != nil {
-		t.Fatalf("billtap_email_sent_at = %q, want RFC3339: %v", finalized.Metadata["billtap_email_sent_at"], err)
+	if _, err := time.Parse(time.RFC3339, finalized.Metadata["emulator_email_sent_at"]); err != nil {
+		t.Fatalf("emulator_email_sent_at = %q, want RFC3339: %v", finalized.Metadata["emulator_email_sent_at"], err)
 	}
 
 	eventsAfterFinalize := getJSON[struct {
@@ -5742,7 +5742,7 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if sent.Object != "invoice" || sent.Status != "open" {
 		t.Fatalf("explicit send = %#v, want open invoice object", sent)
 	}
-	if sent.Metadata["billtap_email_sent_at"] == "" || sent.Metadata["billtap_email_recipient"] != "auto-send@example.test" {
+	if sent.Metadata["emulator_email_sent_at"] == "" || sent.Metadata["emulator_email_recipient"] != "auto-send@example.test" {
 		t.Fatalf("explicit send metadata = %#v, want email evidence", sent.Metadata)
 	}
 	sentEvents := getJSON[struct {
@@ -5769,7 +5769,7 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if paid.Status != "paid" {
 		t.Fatalf("paid invoice = %#v, want paid", paid)
 	}
-	priorSentAt := paid.Metadata["billtap_email_sent_at"]
+	priorSentAt := paid.Metadata["emulator_email_sent_at"]
 	if priorSentAt == "" {
 		t.Fatalf("paid invoice missing prior send evidence: %#v", paid.Metadata)
 	}
@@ -5779,11 +5779,11 @@ func TestInvoiceEmailSendEvidence(t *testing.T) {
 	if paidSent.Object != "invoice" || paidSent.Status != "paid" {
 		t.Fatalf("paid send = %#v, want paid invoice object", paidSent)
 	}
-	if paidSent.Metadata["billtap_email_sent_at"] == "" || paidSent.Metadata["billtap_email_recipient"] != "auto-send@example.test" {
+	if paidSent.Metadata["emulator_email_sent_at"] == "" || paidSent.Metadata["emulator_email_recipient"] != "auto-send@example.test" {
 		t.Fatalf("paid send metadata = %#v, want refreshed email evidence", paidSent.Metadata)
 	}
-	if paidSent.Metadata["billtap_email_sent_at"] == priorSentAt {
-		t.Fatalf("paid re-send did not refresh billtap_email_sent_at: %q", priorSentAt)
+	if paidSent.Metadata["emulator_email_sent_at"] == priorSentAt {
+		t.Fatalf("paid re-send did not refresh emulator_email_sent_at: %q", priorSentAt)
 	}
 	paidSentEvents := getJSON[struct {
 		Object string           `json:"object"`
@@ -6414,7 +6414,7 @@ func TestFixtureResolveStatusAndTestClockAdvance(t *testing.T) {
 			ID       string            `json:"id"`
 			Metadata map[string]string `json:"metadata"`
 		} `json:"data"`
-	}](t, handler, "/v1/subscriptions?metadata[billtap_fixture_ref]=trial-to-active")
+	}](t, handler, "/v1/subscriptions?metadata[emulator_fixture_ref]=trial-to-active")
 	if len(filtered.Data) != 1 || filtered.Data[0].ID != "sub_e2e_trial" {
 		t.Fatalf("metadata filtered subscriptions = %#v", filtered.Data)
 	}
@@ -6423,17 +6423,17 @@ func TestFixtureResolveStatusAndTestClockAdvance(t *testing.T) {
 		Data []webhooks.Event `json:"data"`
 	}](t, handler, "/v1/events?type=invoice.created")
 	advance := postForm[struct {
-		ID      string `json:"id"`
-		Status  string `json:"status"`
-		Billtap struct {
+		ID       string `json:"id"`
+		Status   string `json:"status"`
+		Emulator struct {
 			ActivatedCount int `json:"activated_count"`
 			CanceledCount  int `json:"canceled_count"`
 			Renewed        int `json:"renewed"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_e2e_lifecycle/advance", url.Values{
 		"frozen_time": {"1776297600"},
 	})
-	if advance.ID != "clock_e2e_lifecycle" || advance.Status != "ready" || advance.Billtap.ActivatedCount != 1 || advance.Billtap.CanceledCount != 1 || advance.Billtap.Renewed != 1 {
+	if advance.ID != "clock_e2e_lifecycle" || advance.Status != "ready" || advance.Emulator.ActivatedCount != 1 || advance.Emulator.CanceledCount != 1 || advance.Emulator.Renewed != 1 {
 		t.Fatalf("advance = %#v, want one trial activation, one renewal, and one cancellation", advance)
 	}
 	invoiceCreatedAfter := getJSON[struct {
@@ -6596,13 +6596,13 @@ func TestFixtureSubscriptionStatusAndDatesOverrideOutcome(t *testing.T) {
 	}
 
 	advance := postForm[struct {
-		Billtap struct {
+		Emulator struct {
 			ActivatedCount int `json:"activated_count"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_fixture_trial/advance", url.Values{
 		"frozen_time": {"1894752000"},
 	})
-	if advance.Billtap.ActivatedCount != 1 {
+	if advance.Emulator.ActivatedCount != 1 {
 		t.Fatalf("first advance = %#v, want one trial activation", advance)
 	}
 	active := getJSON[struct {
@@ -6625,7 +6625,7 @@ func TestFixtureSubscriptionStatusAndDatesOverrideOutcome(t *testing.T) {
 
 func TestFixtureApplyBackfillsCreatedEventForExistingSubscriptionSeed(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -6709,7 +6709,7 @@ func countSubscriptionCreatedEvents(t *testing.T, handler http.Handler, subscrip
 		}
 		if object.ID == subscriptionID {
 			count++
-			source = event.Billtap.Source
+			source = event.Emulator.Source
 		}
 	}
 	return count, source
@@ -6881,9 +6881,9 @@ func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
 			Enabled bool    `json:"enabled"`
 			Status  *string `json:"status"`
 		} `json:"automatic_tax"`
-		BilltapPreview struct {
+		EmulatorPreview struct {
 			BillingCycleAnchor int64 `json:"billing_cycle_anchor"`
-		} `json:"billtap_preview"`
+		} `json:"emulator_preview"`
 		Lines struct {
 			Object string `json:"object"`
 			Data   []struct {
@@ -6913,7 +6913,7 @@ func TestInvoicePreviewProrationAndUpcoming(t *testing.T) {
 		"subscription_details[proration_date]":       {strconv.FormatInt(prorationDate, 10)},
 		"subscription_details[billing_cycle_anchor]": {"now"},
 	})
-	if preview.Object != "invoice" || preview.AmountDue != 1000 || preview.BilltapPreview.BillingCycleAnchor != prorationDate || len(preview.Lines.Data) != 2 || preview.Lines.Data[1].Parent.SubscriptionItemDetails.Price != pro.ID || preview.Lines.Data[0].Amount+preview.Lines.Data[1].Amount != 1000 {
+	if preview.Object != "invoice" || preview.AmountDue != 1000 || preview.EmulatorPreview.BillingCycleAnchor != prorationDate || len(preview.Lines.Data) != 2 || preview.Lines.Data[1].Parent.SubscriptionItemDetails.Price != pro.ID || preview.Lines.Data[0].Amount+preview.Lines.Data[1].Amount != 1000 {
 		t.Fatalf("preview = %#v, want unused-time credit + remaining-time charge netting 1000 and accepted billing_cycle_anchor", preview)
 	}
 	for _, line := range preview.Lines.Data {
@@ -7258,7 +7258,7 @@ func TestCustomerDefaultInvoiceOutcomeFailsRenewal(t *testing.T) {
 		t.Fatalf("customer metadata outcome = %q, want insufficient_funds", got)
 	}
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewed  int `json:"renewed"`
 			Renewals []struct {
 				Invoice struct {
@@ -7276,14 +7276,14 @@ func TestCustomerDefaultInvoiceOutcomeFailsRenewal(t *testing.T) {
 					DeclineCode string `json:"decline_code"`
 				} `json:"payment_intent"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_renewal_failure/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(time.Date(2030, 3, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)},
 	})
-	if advance.BilltapAdvanceResult.Renewed != 1 || len(advance.BilltapAdvanceResult.Renewals) != 1 {
+	if advance.EmulatorAdvanceResult.Renewed != 1 || len(advance.EmulatorAdvanceResult.Renewals) != 1 {
 		t.Fatalf("advance = %#v, want one failed renewal", advance)
 	}
-	renewal := advance.BilltapAdvanceResult.Renewals[0]
+	renewal := advance.EmulatorAdvanceResult.Renewals[0]
 	if renewal.Invoice.Status != "open" || renewal.Invoice.AmountDue != 2400 || renewal.Invoice.AmountPaid != 0 || renewal.Subscription.Status != "past_due" || renewal.PaymentIntent.Status != "requires_payment_method" || renewal.PaymentIntent.FailureCode != "card_declined" || renewal.PaymentIntent.DeclineCode != "insufficient_funds" {
 		t.Fatalf("failed renewal = %#v, want open invoice, past_due subscription, insufficient_funds error", renewal)
 	}
@@ -7387,17 +7387,17 @@ func TestRefundTimingCreditVoidFixtureValidateAndDisputes(t *testing.T) {
 		t.Fatalf("fixture apply = %#v, want account, pending refund, void credit note, dispute", applied)
 	}
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			RefundCount    int `json:"refund_count"`
 			SettledRefunds []struct {
 				ID     string `json:"id"`
 				Status string `json:"status"`
 			} `json:"settled_refunds"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_refund_settle/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(time.Date(2030, 5, 3, 0, 0, 0, 0, time.UTC).Unix(), 10)},
 	})
-	if advance.BilltapAdvanceResult.RefundCount != 1 || advance.BilltapAdvanceResult.SettledRefunds[0].Status != "succeeded" {
+	if advance.EmulatorAdvanceResult.RefundCount != 1 || advance.EmulatorAdvanceResult.SettledRefunds[0].Status != "succeeded" {
 		t.Fatalf("refund clock advance = %#v, want one settled refund", advance)
 	}
 	updatedDispute := postForm[struct {
@@ -7507,7 +7507,7 @@ func newTestHandler(t *testing.T) http.Handler {
 
 func newTestHandlerWithOptions(t *testing.T, opts Options) http.Handler {
 	t.Helper()
-	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -7537,7 +7537,7 @@ func containsString(values []string, want string) bool {
 func postForm[T any](t *testing.T, handler http.Handler, path string, values url.Values) T {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, stringsReader(values.Encode()))
-	req.Host = "billtap.test"
+	req.Host = "emulator.test"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -7584,7 +7584,7 @@ func postFormStatusWithHeaders(t *testing.T, handler http.Handler, path string, 
 func postFormStatusWithResponseHeaders(t *testing.T, handler http.Handler, path string, values url.Values, headers map[string]string) (int, string, http.Header) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, stringsReader(values.Encode()))
-	req.Host = "billtap.test"
+	req.Host = "emulator.test"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	for key, value := range headers {
 		req.Header.Set(key, value)
@@ -7605,7 +7605,7 @@ func getStatus(t *testing.T, handler http.Handler, path string) (int, string) {
 func patchForm[T any](t *testing.T, handler http.Handler, path string, values url.Values) T {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPatch, path, stringsReader(values.Encode()))
-	req.Host = "billtap.test"
+	req.Host = "emulator.test"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

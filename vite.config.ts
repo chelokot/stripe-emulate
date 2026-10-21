@@ -5,11 +5,11 @@ import { defineConfig, type Plugin } from "vite";
 
 const appRoutes = new Set(["checkout", "dashboard", "portal"]);
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
-const publicBasePath = normalizePublicBasePath(firstNonEmpty(process.env.BILLTAP_PUBLIC_BASE_PATH, process.env.PUBLIC_BASE_PATH));
+const publicBasePath = normalizePublicBasePath(firstNonEmpty(process.env.STRIPE_EMULATE_PUBLIC_BASE_PATH, process.env.PUBLIC_BASE_PATH));
 
 function appPathDevFallback(): Plugin {
   return {
-    name: "billtap-app-path-dev-fallback",
+    name: "emulator-app-path-dev-fallback",
     apply: "serve",
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {

@@ -11,7 +11,7 @@ func FormatSubscriptionItemID(subscriptionID string, index int) string {
 	return "si_" + sanitizeSubscriptionItemToken(subscriptionID+"_"+strconv.Itoa(index))
 }
 
-// sanitizeSubscriptionItemToken keeps [A-Za-z0-9_-]; empty input becomes "billtap".
+// sanitizeSubscriptionItemToken keeps [A-Za-z0-9_-]; empty input becomes "emulator".
 // Shared with the API layer so stored and derived IDs always match.
 func sanitizeSubscriptionItemToken(value string) string {
 	var b strings.Builder
@@ -21,7 +21,7 @@ func sanitizeSubscriptionItemToken(value string) string {
 		}
 	}
 	if b.Len() == 0 {
-		return "billtap"
+		return "emulator"
 	}
 	return b.String()
 }

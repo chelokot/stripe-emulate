@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 // TestPercentOffDecimalSupport covers stripe-node v22 number percent_off:
@@ -192,7 +192,7 @@ func TestPercentOffDecimalSupport(t *testing.T) {
 		t.Fatalf("subscription metadata percent_off = %q, want 10.5", subRound.Metadata[billing.MetadataDiscountPercentOff])
 	}
 	advanceRound := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal       int64 `json:"subtotal"`
@@ -200,14 +200,14 @@ func TestPercentOffDecimalSupport(t *testing.T) {
 					DiscountAmount int64 `json:"discount_amount"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_decimal_round/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(time.Date(2032, 2, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)},
 	})
-	if len(advanceRound.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("round renewal count = %d, want 1 (first invoice amounts: %#v)", len(advanceRound.BilltapAdvanceResult.Renewals), advanceRound.BilltapAdvanceResult.Renewals)
+	if len(advanceRound.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("round renewal count = %d, want 1 (first invoice amounts: %#v)", len(advanceRound.EmulatorAdvanceResult.Renewals), advanceRound.EmulatorAdvanceResult.Renewals)
 	}
-	renewalRound := advanceRound.BilltapAdvanceResult.Renewals[0].Invoice
+	renewalRound := advanceRound.EmulatorAdvanceResult.Renewals[0].Invoice
 	if renewalRound.Subtotal != 7000 || renewalRound.DiscountAmount != 735 || renewalRound.Total != 6265 {
 		t.Fatalf("round renewal invoice = %#v, want subtotal=7000 discount=735 total=6265", renewalRound)
 	}

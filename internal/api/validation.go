@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 const (
@@ -843,7 +843,7 @@ func validateCheckoutSessionCreate(p params) error {
 }
 
 // checkoutLineTaxRateIDs returns the line_items[n][tax_rates] set. Payment mode
-// only, and every line must carry the same set: Billtap taxes the session total
+// only, and every line must carry the same set: Emulator taxes the session total
 // with one rate set (the DefaultTaxRates math), so mixed per-line rates are refused
 // rather than mis-totaled.
 // ponytail: uniform rates only; per-line tax amounts if a client mixes rates.
@@ -874,7 +874,7 @@ func (p params) checkoutLineTaxRateIDs(mode string) ([]string, error) {
 			continue
 		}
 		if strings.Join(ids, ",") != strings.Join(first, ",") {
-			return nil, invalidParam(key, "Billtap supports line_items[].tax_rates only when every line item uses the same tax rates.")
+			return nil, invalidParam(key, "Emulator supports line_items[].tax_rates only when every line item uses the same tax rates.")
 		}
 	}
 	if !hasAny {
@@ -989,7 +989,7 @@ func (p params) hasPriceDataProductData(idx int) bool {
 }
 
 // parseUnitAmountDecimal accepts integer minor-unit strings only (no fractional part).
-// Stripe allows up to 12 decimal places; billtap simplifies: non-integral values are 400.
+// Stripe allows up to 12 decimal places; emulator simplifies: non-integral values are 400.
 func parseUnitAmountDecimal(raw string) (int64, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1188,7 +1188,7 @@ func validatePaymentIntentCreate(p params) error {
 			"confirm",
 			"capture_method",
 			"outcome",
-			"billtap_outcome",
+			"emulator_outcome",
 			"deferred_outcome",
 			"payment_intent_outcome",
 			"description",
@@ -1197,7 +1197,7 @@ func validatePaymentIntentCreate(p params) error {
 			"setup_future_usage",
 			"off_session",
 			"use_stripe_sdk",
-			"billtap_next_action_type",
+			"emulator_next_action_type",
 			"automatic_payment_methods[enabled]",
 		},
 		AllowedRegex: []*regexp.Regexp{paymentMethodTypesRE, paymentMethodOptionsRE},
@@ -1206,9 +1206,9 @@ func validatePaymentIntentCreate(p params) error {
 		Positive:     []string{"amount"},
 		BoolParams:   []string{"confirm", "off_session", "use_stripe_sdk", "automatic_payment_methods[enabled]"},
 		EnumParams: map[string][]string{
-			"capture_method":           {"automatic", "automatic_async", "manual"},
-			"setup_future_usage":       {"on_session", "off_session"},
-			"billtap_next_action_type": {"use_stripe_sdk", "redirect_to_url"},
+			"capture_method":            {"automatic", "automatic_async", "manual"},
+			"setup_future_usage":        {"on_session", "off_session"},
+			"emulator_next_action_type": {"use_stripe_sdk", "redirect_to_url"},
 		},
 		AllowMetadata: true,
 	}); err != nil {
@@ -1230,7 +1230,7 @@ func validateInvoicePay(p params) error {
 			"paid_out_of_band",
 			"payment_method",
 			"source",
-			"billtap_outcome",
+			"emulator_outcome",
 		},
 		BoolParams: []string{"forgive", "off_session", "paid_out_of_band"},
 	})
@@ -1454,13 +1454,13 @@ func validatePaymentIntentConfirm(p params) error {
 			"setup_future_usage",
 			"off_session",
 			"use_stripe_sdk",
-			"billtap_next_action_type",
+			"emulator_next_action_type",
 		},
 		AllowedRegex: []*regexp.Regexp{paymentMethodOptionsRE},
 		BoolParams:   []string{"off_session", "use_stripe_sdk"},
 		EnumParams: map[string][]string{
-			"setup_future_usage":       {"on_session", "off_session"},
-			"billtap_next_action_type": {"use_stripe_sdk", "redirect_to_url"},
+			"setup_future_usage":        {"on_session", "off_session"},
+			"emulator_next_action_type": {"use_stripe_sdk", "redirect_to_url"},
 		},
 	})
 }
@@ -1491,11 +1491,11 @@ func validatePaymentIntentOutcomeUpdate(p params) error {
 
 func hasPaymentIntentDeferredOutcome(p params) bool {
 	return p.hasAny(
-		"billtap_outcome",
+		"emulator_outcome",
 		"deferred_outcome",
 		"payment_intent_outcome",
 		"metadata["+billing.MetadataPaymentIntentOutcome+"]",
-		"metadata[billtap_outcome]",
+		"metadata[emulator_outcome]",
 	)
 }
 

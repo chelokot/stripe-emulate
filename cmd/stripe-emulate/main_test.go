@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/scenarios"
-	"github.com/midagedev/billtap/internal/server"
-	"github.com/midagedev/billtap/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/scenarios"
+	"github.com/chelokot/stripe-emulate/internal/server"
+	"github.com/chelokot/stripe-emulate/internal/storage"
 )
 
 func TestParseScenarioRunArgsAllowsFlagsAfterFile(t *testing.T) {
@@ -127,7 +127,7 @@ func TestRunCompatibilityInventoryRequiresOpenAPIPath(t *testing.T) {
 func TestRunSeedUsesFixtureRunIDBeforeFlag(t *testing.T) {
 	dir := t.TempDir()
 	packPath := filepath.Join(dir, "seed.yml")
-	dbPath := filepath.Join(dir, "billtap.db")
+	dbPath := filepath.Join(dir, "emulator.db")
 	writeFile(t, packPath, `
 name: seed-pack
 runId: yaml-run
@@ -150,7 +150,7 @@ customers:
 	if err != nil {
 		t.Fatalf("list customers: %v", err)
 	}
-	if len(customers) != 1 || customers[0].ID != "cus_seeded" || customers[0].Metadata["billtap_fixture_run_id"] != "yaml-run" {
+	if len(customers) != 1 || customers[0].ID != "cus_seeded" || customers[0].Metadata["emulator_fixture_run_id"] != "yaml-run" {
 		t.Fatalf("customers = %#v, want fixture run customer", customers)
 	}
 }

@@ -10,7 +10,7 @@ coverage/
 
 # Local runtime data
 .private/
-.billtap/
+.emulator/
 data/
 tmp/
 snapshots/

@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/security"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/security"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 type BillingService interface {
@@ -707,7 +707,7 @@ func (r *Runner) emitCheckoutWebhooks(ctx context.Context, scenario Scenario, ou
 			Type:           item.eventType,
 			ObjectPayload:  item.payload,
 			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "billtap:" + item.eventType + ":" + item.objectID,
+			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
 			ScenarioRunID:  scenario.Name,
 			Source:         webhooks.SourceScenario,
 			Sequence:       state.sequence,
@@ -731,7 +731,7 @@ func (r *Runner) emitInvoicePaymentWebhooks(ctx context.Context, scenario Scenar
 			Type:           item.eventType,
 			ObjectPayload:  item.payload,
 			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "billtap:" + item.eventType + ":" + item.objectID,
+			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
 			ScenarioRunID:  scenario.Name,
 			Source:         webhooks.SourceScenario,
 			Sequence:       state.sequence,
@@ -773,7 +773,7 @@ func (r *Runner) emitClockAdvanceWebhooks(ctx context.Context, scenario Scenario
 			Type:           "customer.subscription.deleted",
 			ObjectPayload:  raw,
 			RequestID:      "req_" + subscription.ID,
-			IdempotencyKey: "billtap:customer.subscription.deleted:" + subscription.ID,
+			IdempotencyKey: "emulator:customer.subscription.deleted:" + subscription.ID,
 			ScenarioRunID:  scenario.Name,
 			Source:         webhooks.SourceScenario,
 			Sequence:       state.sequence,
@@ -797,7 +797,7 @@ func (r *Runner) emitRenewalWebhooks(ctx context.Context, scenario Scenario, res
 			Type:           item.eventType,
 			ObjectPayload:  item.payload,
 			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "billtap:" + item.eventType + ":" + item.objectID,
+			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
 			ScenarioRunID:  scenario.Name,
 			Source:         webhooks.SourceScenario,
 			Sequence:       state.sequence,
@@ -823,7 +823,7 @@ func (r *Runner) emitSubscriptionWebhook(ctx context.Context, scenario Scenario,
 		Type:           eventType,
 		ObjectPayload:  raw,
 		RequestID:      "req_" + subscription.ID,
-		IdempotencyKey: "billtap:" + eventType + ":" + subscription.ID,
+		IdempotencyKey: "emulator:" + eventType + ":" + subscription.ID,
 		ScenarioRunID:  scenario.Name,
 		Source:         webhooks.SourceScenario,
 		Sequence:       state.sequence,

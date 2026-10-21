@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/diagnostics"
-	"github.com/midagedev/billtap/internal/security"
+	"github.com/chelokot/stripe-emulate/internal/diagnostics"
+	"github.com/chelokot/stripe-emulate/internal/security"
 )
 
 func (h *Handler) serveWithRequestTrace(w http.ResponseWriter, r *http.Request) {

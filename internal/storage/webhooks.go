@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 var _ webhooks.Repository = (*SQLiteStore)(nil)
@@ -103,7 +103,7 @@ func (s *SQLiteStore) CreateEvent(ctx context.Context, event webhooks.Event) (we
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO webhook_events (id, type, created, livemode, api_version, pending_webhooks, request_id, idempotency_key, object_payload, raw_payload, source, sequence, scenario_run_id, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		event.ID, event.Type, event.Created, boolInt(event.Livemode), event.APIVersion, event.PendingWebhooks, event.Request.ID, event.Request.IdempotencyKey, string(event.Data.Object), string(event.RawPayload), event.Billtap.Source, event.Billtap.Sequence, event.Billtap.ScenarioRunID, encodeTime(event.CreatedAt)); err != nil {
+		event.ID, event.Type, event.Created, boolInt(event.Livemode), event.APIVersion, event.PendingWebhooks, event.Request.ID, event.Request.IdempotencyKey, string(event.Data.Object), string(event.RawPayload), event.Emulator.Source, event.Emulator.Sequence, event.Emulator.ScenarioRunID, encodeTime(event.CreatedAt)); err != nil {
 		return webhooks.Event{}, err
 	}
 	return s.GetEvent(ctx, event.ID)
@@ -293,15 +293,15 @@ func scanWebhookEvent(row scanner) (webhooks.Event, error) {
 	var event webhooks.Event
 	var objectPayload, rawPayload, source, scenarioRunID, createdAt string
 	var livemode int
-	if err := row.Scan(&event.ID, &event.Type, &event.Created, &livemode, &event.APIVersion, &event.PendingWebhooks, &event.Request.ID, &event.Request.IdempotencyKey, &objectPayload, &rawPayload, &source, &event.Billtap.Sequence, &scenarioRunID, &createdAt); err != nil {
+	if err := row.Scan(&event.ID, &event.Type, &event.Created, &livemode, &event.APIVersion, &event.PendingWebhooks, &event.Request.ID, &event.Request.IdempotencyKey, &objectPayload, &rawPayload, &source, &event.Emulator.Sequence, &scenarioRunID, &createdAt); err != nil {
 		return event, err
 	}
 	event.Object = webhooks.ObjectEvent
 	event.Livemode = livemode != 0
 	event.Data.Object = json.RawMessage(objectPayload)
 	event.RawPayload = json.RawMessage(rawPayload)
-	event.Billtap.Source = source
-	event.Billtap.ScenarioRunID = scenarioRunID
+	event.Emulator.Source = source
+	event.Emulator.ScenarioRunID = scenarioRunID
 	event.CreatedAt = decodeTime(createdAt)
 	return event, nil
 }

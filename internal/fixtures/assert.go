@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 func evaluateExpectation(snapshot Snapshot, expectation Expectation) AssertionResult {

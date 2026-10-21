@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/diagnostics"
-	"github.com/midagedev/billtap/internal/storage"
-	"github.com/midagedev/billtap/internal/webhooks"
-	"github.com/midagedev/billtap/internal/webhooks/webhookstest"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/diagnostics"
+	"github.com/chelokot/stripe-emulate/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/webhooks/webhookstest"
 )
 
 // newTestHandlerWithStore returns handler + raw store for legacy row injection.
 func newTestHandlerWithStore(t *testing.T) (http.Handler, *storage.SQLiteStore) {
 	t.Helper()
-	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestRenewalInvoiceBillingReasonSubscriptionCycle(t *testing.T) {
 	if len(invoices) < 2 {
 		t.Fatalf("invoices = %#v, want create + renewal", invoices)
 	}
-	// Newest first (Stripe list default is reverse chrono in billtap).
+	// Newest first (Stripe list default is reverse chrono in emulator).
 	var createCount, cycleCount int
 	for _, inv := range invoices {
 		switch inv.BillingReason {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 var (
@@ -552,7 +552,7 @@ func (s *Service) upsertSubscription(ctx context.Context, pack Pack, fixture Sub
 	}
 	if strings.TrimSpace(fixture.RenewalOutcome) != "" {
 		metadata = ensureStringMap(metadata)
-		metadata["billtap_renewal_outcome"] = strings.TrimSpace(fixture.RenewalOutcome)
+		metadata["emulator_renewal_outcome"] = strings.TrimSpace(fixture.RenewalOutcome)
 	}
 	if strings.TrimSpace(fixture.TrialStart) != "" {
 		metadata = ensureStringMap(metadata)
@@ -724,7 +724,7 @@ func (s *Service) createRefund(ctx context.Context, pack Pack, fixture RefundFix
 	}
 	if settleAt := firstFixtureNonEmpty(fixture.SettleAt, fixture.AvailableOn); settleAt != "" {
 		metadata = ensureStringMap(metadata)
-		metadata["billtap_settle_at"] = settleAt
+		metadata["emulator_settle_at"] = settleAt
 	}
 	return s.billing.CreateRefund(ctx, billing.Refund{
 		ID:              strings.TrimSpace(fixture.ID),
@@ -1180,7 +1180,7 @@ func customerDefaultInvoiceOutcomeFixture(fixture CustomerFixture) string {
 		fixture.DefaultRenewalOutcome,
 		fixture.DefaultRenewalOutcomeCamel,
 		fixture.Metadata[billing.MetadataDefaultInvoiceOutcome],
-		fixture.Metadata["billtap_default_renewal_outcome"],
+		fixture.Metadata["emulator_default_renewal_outcome"],
 		fixture.Metadata["default_invoice_outcome"],
 		fixture.Metadata["default_renewal_outcome"],
 	)

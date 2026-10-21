@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 // Plan swap + seat change: each changed item gets its own credit/charge line

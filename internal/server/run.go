@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/midagedev/billtap/internal/config"
-	"github.com/midagedev/billtap/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/config"
+	"github.com/chelokot/stripe-emulate/internal/storage"
 )
 
 const (
@@ -28,17 +28,17 @@ const (
 
 	// WorkspaceHeader is a legacy run selector. It is echoed with the resolved
 	// run so old integrations can confirm the selected partition.
-	WorkspaceHeader = "X-Billtap-Workspace"
+	WorkspaceHeader = "X-Emulator-Workspace"
 
 	// WorkspaceQueryParam is a legacy alternative to WorkspaceHeader for callers
 	// that cannot easily set headers. Prefer /runs/<runId> for new code.
 	WorkspaceQueryParam = "workspace"
 
 	// RunHeader carries the path-scoped run ID resolved from /runs/<runId>.
-	RunHeader = "X-Billtap-Run-Id"
+	RunHeader = "X-Emulator-Run-Id"
 
 	// RunPrefixHeader carries the browser path prefix for a path-scoped run.
-	RunPrefixHeader = "X-Billtap-Run-Prefix"
+	RunPrefixHeader = "X-Emulator-Run-Prefix"
 
 	maxRunIDLength = 63
 )
@@ -375,7 +375,7 @@ func runDSN(baseDSN, name string) string {
 	if isMemoryDSN(baseDSN) {
 		// Each in-memory run needs a distinct shared-cache name so it
 		// stays isolated yet survives across pooled connections.
-		return fmt.Sprintf("file:billtap_run_%s?mode=memory&cache=shared", name)
+		return fmt.Sprintf("file:emulator_run_%s?mode=memory&cache=shared", name)
 	}
 
 	_, query := splitDSN(baseDSN)

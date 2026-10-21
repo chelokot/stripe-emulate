@@ -11,57 +11,53 @@ import (
 )
 
 const (
-	envConfigPath             = "BILLTAP_CONFIG"
-	envAddr                   = "BILLTAP_ADDR"
-	envDatabaseURL            = "BILLTAP_DATABASE_URL"
-	envStaticDir              = "BILLTAP_STATIC_DIR"
+	envConfigPath             = "STRIPE_EMULATE_CONFIG"
+	envAddr                   = "STRIPE_EMULATE_ADDR"
+	envDatabaseURL            = "STRIPE_EMULATE_DATABASE_URL"
+	envStaticDir              = "STRIPE_EMULATE_STATIC_DIR"
 	envPublicBasePath         = "PUBLIC_BASE_PATH"
-	envBilltapPublicBasePath  = "BILLTAP_PUBLIC_BASE_PATH"
-	envPublicBaseURL          = "BILLTAP_PUBLIC_BASE_URL"
-	envEnvironment            = "BILLTAP_ENV"
-	envRelayMode              = "BILLTAP_RELAY_MODE"
-	envRawPayloadStorage      = "BILLTAP_RAW_PAYLOAD_STORAGE"
-	envRetentionDays          = "BILLTAP_RETENTION_DAYS"
-	envWebhookSignatureHeader = "BILLTAP_WEBHOOK_SIGNATURE_HEADER"
-	envWebhookAPIVersion      = "BILLTAP_WEBHOOK_API_VERSION"
-	envRequestLog             = "BILLTAP_REQUEST_LOG"
+	envEmulatorPublicBasePath = "STRIPE_EMULATE_PUBLIC_BASE_PATH"
+	envPublicBaseURL          = "STRIPE_EMULATE_PUBLIC_BASE_URL"
+	envEnvironment            = "STRIPE_EMULATE_ENV"
+	envRelayMode              = "STRIPE_EMULATE_RELAY_MODE"
+	envRawPayloadStorage      = "STRIPE_EMULATE_RAW_PAYLOAD_STORAGE"
+	envRetentionDays          = "STRIPE_EMULATE_RETENTION_DAYS"
+	envWebhookAPIVersion      = "STRIPE_EMULATE_WEBHOOK_API_VERSION"
+	envRequestLog             = "STRIPE_EMULATE_REQUEST_LOG"
 
 	RawPayloadStore        = "store"
 	RawPayloadMetadataOnly = "metadata_only"
 
-	DefaultWebhookSignatureHeader = "Billtap-Signature"
-	DefaultWebhookAPIVersion      = "2025-12-15.clover"
+	DefaultWebhookAPIVersion = "2025-12-15.clover"
 )
 
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
-	Addr                   string `json:"addr"`
-	DatabaseURL            string `json:"database_url"`
-	StaticDir              string `json:"static_dir"`
-	PublicBasePath         string `json:"public_base_path"`
-	PublicBaseURL          string `json:"public_base_url"`
-	Environment            string `json:"environment"`
-	RelayMode              bool   `json:"relay_mode"`
-	RawPayloadStorage      string `json:"raw_payload_storage"`
-	RetentionDays          int    `json:"retention_days"`
-	WebhookSignatureHeader string `json:"webhook_signature_header"`
-	WebhookAPIVersion      string `json:"webhook_api_version"`
+	Addr              string `json:"addr"`
+	DatabaseURL       string `json:"database_url"`
+	StaticDir         string `json:"static_dir"`
+	PublicBasePath    string `json:"public_base_path"`
+	PublicBaseURL     string `json:"public_base_url"`
+	Environment       string `json:"environment"`
+	RelayMode         bool   `json:"relay_mode"`
+	RawPayloadStorage string `json:"raw_payload_storage"`
+	RetentionDays     int    `json:"retention_days"`
+	WebhookAPIVersion string `json:"webhook_api_version"`
 	// RequestLogDisabled turns off the per-request log line (on by default).
 	RequestLogDisabled bool `json:"request_log_disabled"`
 }
 
 func Default() Config {
 	return Config{
-		Addr:                   ":8080",
-		DatabaseURL:            ".billtap/billtap.db",
-		StaticDir:              "dist/app",
-		Environment:            "development",
-		RelayMode:              false,
-		RawPayloadStorage:      RawPayloadStore,
-		RetentionDays:          30,
-		WebhookSignatureHeader: DefaultWebhookSignatureHeader,
-		WebhookAPIVersion:      DefaultWebhookAPIVersion,
+		Addr:              ":8080",
+		DatabaseURL:       ".emulator/emulator.db",
+		StaticDir:         "dist/app",
+		Environment:       "development",
+		RelayMode:         false,
+		RawPayloadStorage: RawPayloadStore,
+		RetentionDays:     30,
+		WebhookAPIVersion: DefaultWebhookAPIVersion,
 	}
 }
 
@@ -101,7 +97,7 @@ func LoadWithLookup(path string, lookup LookupFunc) (Config, error) {
 	if value, ok := lookup(envPublicBasePath); ok {
 		cfg.PublicBasePath = value
 	}
-	if value, ok := lookup(envBilltapPublicBasePath); ok {
+	if value, ok := lookup(envEmulatorPublicBasePath); ok {
 		cfg.PublicBasePath = value
 	}
 	if value, ok := lookup(envPublicBaseURL); ok {
@@ -122,9 +118,6 @@ func LoadWithLookup(path string, lookup LookupFunc) (Config, error) {
 			return Config{}, fmt.Errorf("parse %s: %w", envRetentionDays, err)
 		}
 		cfg.RetentionDays = days
-	}
-	if value, ok := lookup(envWebhookSignatureHeader); ok {
-		cfg.WebhookSignatureHeader = value
 	}
 	if value, ok := lookup(envWebhookAPIVersion); ok {
 		cfg.WebhookAPIVersion = value
@@ -170,9 +163,6 @@ func (c Config) Validate() error {
 	}
 	if c.RetentionDays < 0 {
 		return errors.New("retention_days must be zero or greater")
-	}
-	if c.WebhookSignatureHeader == "" {
-		return errors.New("webhook_signature_header is required")
 	}
 	if c.WebhookAPIVersion == "" {
 		return errors.New("webhook_api_version is required")
@@ -223,9 +213,6 @@ func merge(base Config, override Config) Config {
 	}
 	if override.RetentionDays != 0 {
 		base.RetentionDays = override.RetentionDays
-	}
-	if override.WebhookSignatureHeader != "" {
-		base.WebhookSignatureHeader = override.WebhookSignatureHeader
 	}
 	if override.WebhookAPIVersion != "" {
 		base.WebhookAPIVersion = override.WebhookAPIVersion

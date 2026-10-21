@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/diagnostics"
-	"github.com/midagedev/billtap/internal/storage"
-	"github.com/midagedev/billtap/internal/webhooks"
-	"github.com/midagedev/billtap/internal/webhooks/webhookstest"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/diagnostics"
+	"github.com/chelokot/stripe-emulate/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/webhooks/webhookstest"
 )
 
 // handlerOnStore builds a handler over an already-open store, which is how a
@@ -32,7 +32,7 @@ func handlerOnStore(t *testing.T, store *storage.SQLiteStore) http.Handler {
 // A restart used to drop every evidence object while the rest of the store
 // survived, so lookups kept returning 200 with the sub-record missing.
 func TestLocalEvidenceSurvivesHandlerRestart(t *testing.T) {
-	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestLocalEvidenceSurvivesHandlerRestart(t *testing.T) {
 
 // Deletes must persist too, or a restart resurrects the object.
 func TestLocalEvidenceDeleteSurvivesHandlerRestart(t *testing.T) {
-	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
 )
 
 func TestTestClockDeleteDetachesReferences(t *testing.T) {

@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	SignatureHeaderName       = "Billtap-Signature"
-	StripeSignatureHeaderName = "Stripe-Signature"
-	DefaultTolerance          = 300 * time.Second
+	SignatureHeaderName = "Stripe-Signature"
+	DefaultTolerance    = 300 * time.Second
 )
 
 var (
@@ -33,14 +32,6 @@ func SignatureHeader(secret string, timestamp time.Time, payload []byte) string 
 	return fmt.Sprintf("t=%d,v1=%s", timestamp.Unix(), Sign(secret, timestamp, payload))
 }
 
-func NormalizeSignatureHeaderName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return SignatureHeaderName
-	}
-	return name
-}
-
 func SignatureHeaderValue(headers map[string]string) string {
 	if headers == nil {
 		return ""
@@ -48,11 +39,8 @@ func SignatureHeaderValue(headers map[string]string) string {
 	if value := headers[SignatureHeaderName]; value != "" {
 		return value
 	}
-	if value := headers[StripeSignatureHeaderName]; value != "" {
-		return value
-	}
 	for key, value := range headers {
-		if strings.EqualFold(key, SignatureHeaderName) || strings.EqualFold(key, StripeSignatureHeaderName) {
+		if strings.EqualFold(key, SignatureHeaderName) {
 			return value
 		}
 	}

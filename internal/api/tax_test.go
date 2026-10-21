@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
 )
 
 func TestTaxRatesEvidenceCRUD(t *testing.T) {
@@ -244,7 +244,7 @@ func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
 		t.Fatalf("total_tax_amounts = %#v, want one entry", invoice["total_tax_amounts"])
 	}
 	taxEntry, _ := taxAmounts[0].(map[string]any)
-	if taxEntry["amount"] != float64(600) || taxEntry["inclusive"] != false || taxEntry["tax_rate"] != "txr_billtap_simulated" {
+	if taxEntry["amount"] != float64(600) || taxEntry["inclusive"] != false || taxEntry["tax_rate"] != "txr_emulator_simulated" {
 		t.Fatalf("tax amount entry = %#v", taxEntry)
 	}
 	totalTaxes, ok := invoice["total_taxes"].([]any)
@@ -256,7 +256,7 @@ func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
 		t.Fatalf("total_taxes[0] = %#v, want exclusive 600 on taxable 6000", totalTax)
 	}
 	rateDetails, _ := totalTax["tax_rate_details"].(map[string]any)
-	if rateDetails["tax_rate"] != "txr_billtap_simulated" {
+	if rateDetails["tax_rate"] != "txr_emulator_simulated" {
 		t.Fatalf("total_taxes tax_rate_details = %#v", totalTax["tax_rate_details"])
 	}
 
@@ -338,7 +338,7 @@ func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
 		"metadata[tax_percent]": {"25"},
 	})
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal int64 `json:"subtotal"`
@@ -346,14 +346,14 @@ func TestAutomaticTaxCheckoutInvoiceAndRenewal(t *testing.T) {
 					Tax      int64 `json:"tax"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_tax/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(time.Date(2032, 2, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)},
 	})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("tax renewal = %#v, want one renewal", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("tax renewal = %#v, want one renewal", advance.EmulatorAdvanceResult.Renewals)
 	}
-	renewal := advance.BilltapAdvanceResult.Renewals[0].Invoice
+	renewal := advance.EmulatorAdvanceResult.Renewals[0].Invoice
 	if renewal.Subtotal != 7000 || renewal.Tax != 600 || renewal.Total != 6600 {
 		t.Fatalf("tax renewal invoice = %#v, want subtotal=7000 tax=600 total=6600 (snapshot 10%%, not 25%%)", renewal)
 	}
@@ -660,7 +660,7 @@ func TestDefaultTaxRatesRenewal(t *testing.T) {
 		t.Fatalf("first invoice = %#v, want total=5500 tax=500", first)
 	}
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal int64 `json:"subtotal"`
@@ -668,14 +668,14 @@ func TestDefaultTaxRatesRenewal(t *testing.T) {
 					Tax      int64 `json:"tax"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_default_tax/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(time.Date(2033, 2, 1, 0, 0, 0, 0, time.UTC).Unix(), 10)},
 	})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("renewals = %#v, want 1", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("renewals = %#v, want 1", advance.EmulatorAdvanceResult.Renewals)
 	}
-	renewal := advance.BilltapAdvanceResult.Renewals[0].Invoice
+	renewal := advance.EmulatorAdvanceResult.Renewals[0].Invoice
 	if renewal.Subtotal != 5000 || renewal.Tax != 500 || renewal.Total != 5500 {
 		t.Fatalf("renewal invoice = %#v, want subtotal=5000 tax=500 total=5500", renewal)
 	}

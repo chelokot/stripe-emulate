@@ -7,14 +7,11 @@ import (
 	"strings"
 )
 
-const DefaultDocs = "docs/COMPATIBILITY.md#supported-stripe-like-api-subset"
-
 type Claim struct {
 	Method         string
 	Path           string
 	Level          string
 	Stateful       bool
-	Docs           string
 	WebhookEvents  []string
 	ScorecardCases []string
 	SDKSmoke       []string
@@ -42,9 +39,6 @@ func NewRegistry(claims []Claim) (Registry, error) {
 		}
 		if !validLevel(claim.Level) {
 			return Registry{}, fmt.Errorf("claim for %s %s has unsupported level %q", claim.Method, claim.Path, claim.Level)
-		}
-		if claim.Docs == "" {
-			claim.Docs = DefaultDocs
 		}
 		key := RouteKey(claim.Method, claim.Path)
 		if _, exists := registry.claims[key]; exists {
@@ -329,9 +323,9 @@ func DefaultClaims() []Claim {
 		add(method, "/v1/webhook_endpoints", Claim{Level: "L5", Stateful: true, SDKSmoke: []string{"stripe-node"}})
 		add(method, "/v1/webhook_endpoints/{id}", Claim{Level: "L5", Stateful: true, SDKSmoke: []string{"stripe-node"}})
 	}
-	add(http.MethodPatch, "/v1/webhook_endpoints/{id}", Claim{Level: "L5", Stateful: true, Risks: []string{"Billtap accepts PATCH as a local mutation convenience in addition to Stripe-style POST update"}})
+	add(http.MethodPatch, "/v1/webhook_endpoints/{id}", Claim{Level: "L5", Stateful: true, Risks: []string{"Emulator accepts PATCH as a local mutation convenience in addition to Stripe-style POST update"}})
 	add(http.MethodDelete, "/v1/webhook_endpoints/{id}", Claim{Level: "L5", Stateful: true, SDKSmoke: []string{"stripe-node"}})
-	add(http.MethodGet, "/v1/webhook_endpoints/{id}/attempts", Claim{Level: "L5", Stateful: true, Risks: []string{"Billtap-specific endpoint-scoped delivery evidence; not a Stripe API route"}})
+	add(http.MethodGet, "/v1/webhook_endpoints/{id}/attempts", Claim{Level: "L5", Stateful: true, Risks: []string{"Emulator-specific endpoint-scoped delivery evidence; not a Stripe API route"}})
 	add(http.MethodGet, "/v1/events", Claim{Level: "L5", Stateful: true, SDKSmoke: []string{"stripe-node"}})
 	add(http.MethodGet, "/v1/events/{id}", Claim{Level: "L5", Stateful: true, SDKSmoke: []string{"stripe-node"}})
 	add(http.MethodGet, "/v1/test_helpers/test_clocks", Claim{Level: "L3", Stateful: true, WebhookEvents: []string{"customer.subscription.updated", "customer.subscription.deleted", "invoice.created", "invoice.paid", "invoice.payment_failed"}, Risks: []string{"deterministic local clock subset; not full Stripe test-clock attachment semantics"}})

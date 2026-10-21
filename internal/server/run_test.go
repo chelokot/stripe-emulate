@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/config"
-	"github.com/midagedev/billtap/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/config"
+	"github.com/chelokot/stripe-emulate/internal/storage"
 )
 
 // newRunServer builds a SQLite-backed server whose configured DatabaseURL
@@ -19,7 +19,7 @@ import (
 func newRunServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "billtap.db")
+	dbPath := filepath.Join(dir, "emulator.db")
 	store, err := storage.OpenSQLite(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -188,10 +188,10 @@ func TestRunDSN(t *testing.T) {
 		name string
 		want string
 	}{
-		{".billtap/billtap.db", "default", ".billtap/billtap.db"},
-		{".billtap/billtap.db", "test-a", filepath.Join(".billtap", "workspaces", "test-a.db")},
-		{"/data/billtap.db", "ci", filepath.Join("/data", "workspaces", "ci.db")},
-		{":memory:", "iso", "file:billtap_run_iso?mode=memory&cache=shared"},
+		{".emulator/emulator.db", "default", ".emulator/emulator.db"},
+		{".emulator/emulator.db", "test-a", filepath.Join(".emulator", "workspaces", "test-a.db")},
+		{"/data/emulator.db", "ci", filepath.Join("/data", "workspaces", "ci.db")},
+		{":memory:", "iso", "file:emulator_run_iso?mode=memory&cache=shared"},
 	}
 	for _, tc := range cases {
 		if got := runDSN(tc.base, tc.name); got != tc.want {
@@ -369,7 +369,7 @@ func TestRunAdminAndCleanup(t *testing.T) {
 func newRunServerWithPublicBase(t *testing.T, publicBaseURL string) *Server {
 	t.Helper()
 	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "billtap.db")
+	dbPath := filepath.Join(dir, "emulator.db")
 	store, err := storage.OpenSQLite(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -424,14 +424,14 @@ func TestRunScopedPublicBaseURLsPerRun(t *testing.T) {
 
 	postForm[map[string]any](t, srv, "/runs/run-a/v1/config", map[string]string{
 		"public_base_url":  "https://localhost:19029",
-		"public_base_path": "/billtap",
+		"public_base_path": "/emulator",
 	})
 	postForm[map[string]any](t, srv, "/runs/run-b/v1/config", map[string]string{
 		"public_base_url": "https://localhost:18131",
 	})
 
 	_, urlA := seedRunCheckoutSession(t, srv, "/runs/run-a", nil)
-	if want := "https://localhost:19029/billtap/runs/run-a/checkout/"; !strings.HasPrefix(urlA, want) {
+	if want := "https://localhost:19029/emulator/runs/run-a/checkout/"; !strings.HasPrefix(urlA, want) {
 		t.Fatalf("run-a checkout URL = %q, want prefix %q", urlA, want)
 	}
 	sessionB, urlB := seedRunCheckoutSession(t, srv, "/runs/run-b", nil)
@@ -531,13 +531,13 @@ func TestRunScopedRedirectRewriteFollowsRunConfig(t *testing.T) {
 	if got := sessionA["success_url"]; got != "https://localhost:8080/checkout-success" {
 		t.Fatalf("run-a success_url = %v, want caller value", got)
 	}
-	if got := sessionA["billtap_return_url"]; got != "https://localhost:18689/checkout-success" {
-		t.Fatalf("run-a billtap_return_url = %v, want rewritten run origin", got)
+	if got := sessionA["emulator_return_url"]; got != "https://localhost:18689/checkout-success" {
+		t.Fatalf("run-a emulator_return_url = %v, want rewritten run origin", got)
 	}
 
 	sessionB := getSession("/runs/run-b/v1/checkout/sessions/" + seedSession("/runs/run-b"))
-	if _, ok := sessionB["billtap_return_url"]; ok {
-		t.Fatalf("run-b billtap_return_url = %v, want none for unconfigured run", sessionB["billtap_return_url"])
+	if _, ok := sessionB["emulator_return_url"]; ok {
+		t.Fatalf("run-b emulator_return_url = %v, want none for unconfigured run", sessionB["emulator_return_url"])
 	}
 }
 
@@ -546,13 +546,13 @@ func TestRunScopedForwardedOriginBeatsGlobalBase(t *testing.T) {
 	headers := map[string]string{
 		"X-Forwarded-Host":   "localhost:19029",
 		"X-Forwarded-Proto":  "https",
-		"X-Forwarded-Prefix": "/billtap",
+		"X-Forwarded-Prefix": "/emulator",
 	}
 
 	// A run-scoped browser request through the reverse proxy lands on the
 	// proxy origin even though a global base is configured.
 	_, urlFwd := seedRunCheckoutSession(t, srv, "/runs/fwd-run", headers)
-	if want := "https://localhost:19029/billtap/runs/fwd-run/checkout/"; !strings.HasPrefix(urlFwd, want) {
+	if want := "https://localhost:19029/emulator/runs/fwd-run/checkout/"; !strings.HasPrefix(urlFwd, want) {
 		t.Fatalf("forwarded run checkout URL = %q, want prefix %q", urlFwd, want)
 	}
 

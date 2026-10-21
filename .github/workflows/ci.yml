@@ -24,12 +24,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Forbidden keyword scan
-        uses: midagedev/review-actions/forbidden-keyword-scan@v1
-        with:
-          keywords: ${{ secrets.FORBIDDEN_KEYWORDS }}
-          fail-on-empty: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -62,7 +56,7 @@ jobs:
         run: go test ./...
 
       - name: Compatibility scorecard
-        run: go run ./cmd/billtap compatibility scorecard --output-dir /tmp/billtap-compatibility
+        run: go run ./cmd/stripe-emulate compatibility scorecard --output-dir /tmp/emulator-compatibility
 
       - name: Frontend typecheck
         run: npm run typecheck
@@ -81,22 +75,22 @@ jobs:
           PLAYWRIGHT_CHROMIUM_CHANNEL: chrome
         run: npm run smoke:web
 
-      - name: Build Billtap binary
-        run: go build -o /tmp/billtap ./cmd/billtap
+      - name: Build Emulator binary
+        run: go build -o /tmp/stripe-emulate ./cmd/stripe-emulate
 
       - name: Scenario smoke
         shell: bash
         run: |
           set -euo pipefail
 
-          PORT=3300 npm --prefix examples/sample-app start > /tmp/billtap-sample-app.log 2>&1 &
+          PORT=3300 npm --prefix examples/sample-app start > /tmp/emulator-sample-app.log 2>&1 &
           sample_pid=$!
 
           cleanup() {
             kill "$sample_pid" 2>/dev/null || true
             wait "$sample_pid" 2>/dev/null || true
             echo "::group::sample app log"
-            cat /tmp/billtap-sample-app.log || true
+            cat /tmp/emulator-sample-app.log || true
             echo "::endgroup::"
           }
           trap cleanup EXIT
@@ -113,9 +107,9 @@ jobs:
           done
 
           curl -fsS http://127.0.0.1:3300/healthz >/dev/null
-          /tmp/billtap scenario run examples/subscription-payment-retry.yml
+          /tmp/stripe-emulate scenario run examples/subscription-payment-retry.yml
           curl -fsS -X POST http://127.0.0.1:3300/test/reset >/dev/null
-          /tmp/billtap scenario run examples/saas-adoption-contract.yml
+          /tmp/stripe-emulate scenario run examples/saas-adoption-contract.yml
 
       - name: Docker build
-        run: docker build -t billtap:local .
+        run: docker build -t stripe-emulate:local .

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 // previewTaxFields is the subset compared for preview == confirmed invoice tax parity.

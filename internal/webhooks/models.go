@@ -53,7 +53,7 @@ type Event struct {
 	PendingWebhooks int             `json:"pending_webhooks"`
 	Request         EventRequest    `json:"request,omitempty"`
 	Data            EventData       `json:"data"`
-	Billtap         EventMetadata   `json:"billtap"`
+	Emulator        EventMetadata   `json:"emulator"`
 	RawPayload      json.RawMessage `json:"-"`
 	CreatedAt       time.Time       `json:"-"`
 }
@@ -204,7 +204,6 @@ type SimulatedAppFailure struct {
 type ServiceOptions struct {
 	StoreRawPayloads    bool
 	RetentionDays       int
-	SignatureHeaderName string
 	APIVersion          string
 	DeliveryConcurrency int
 }

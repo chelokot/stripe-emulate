@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/webhooks"
-	"github.com/midagedev/billtap/internal/webhooks/webhookstest"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/webhooks/webhookstest"
 )
 
 func TestWebhookPersistenceAndDeliveryAttempt(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestWebhookPersistenceAndDeliveryAttempt(t *testing.T) {
 		APIVersion:      webhooks.DefaultAPIVersion,
 		PendingWebhooks: 1,
 		Data:            webhooks.EventData{Object: json.RawMessage(`{"id":"in_test"}`)},
-		Billtap:         webhooks.EventMetadata{Source: webhooks.SourceCheckout, Sequence: 1},
+		Emulator:        webhooks.EventMetadata{Source: webhooks.SourceCheckout, Sequence: 1},
 		RawPayload:      json.RawMessage(`{"id":"evt_test"}`),
 		CreatedAt:       mustTime("2026-05-08T00:00:01Z"),
 	})
@@ -93,7 +93,7 @@ func mustTime(value string) time.Time {
 
 func TestWebhookServiceRecordsSignedDelivery(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -123,13 +123,13 @@ func TestWebhookServiceRecordsSignedDelivery(t *testing.T) {
 		t.Fatalf("attempts = %#v, want one successful delivery", attempts)
 	}
 	if gotSignature == "" {
-		t.Fatal("test server did not receive Billtap-Signature")
+		t.Fatal("test server did not receive Emulator-Signature")
 	}
 }
 
 func TestWebhookServiceAsyncDeliveryDoesNotWaitForReceiver(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestWebhookServiceAsyncDeliveryDoesNotWaitForReceiver(t *testing.T) {
 
 func TestWebhookServiceLimitsConcurrentDelivery(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -269,26 +269,22 @@ func TestWebhookServiceLimitsConcurrentDelivery(t *testing.T) {
 	}
 }
 
-func TestWebhookServiceCanUseStripeSignatureHeader(t *testing.T) {
+func TestWebhookServiceSignsWithStripeSignatureHeader(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
 	service := webhooks.NewServiceWithOptions(store, webhooks.ServiceOptions{
-		StoreRawPayloads:    true,
-		SignatureHeaderName: webhooks.StripeSignatureHeaderName,
-		APIVersion:          "2025-03-31.basil",
+		StoreRawPayloads: true,
+		APIVersion:       "2025-03-31.basil",
 	})
 	webhookstest.RegisterStoreCleanup(t, service, store)
 
 	var gotStripeSignature string
 	var gotAPIVersion string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotStripeSignature = r.Header.Get(webhooks.StripeSignatureHeaderName)
-		if r.Header.Get(webhooks.SignatureHeaderName) != "" {
-			t.Fatalf("received legacy signature header in Stripe mode")
-		}
+		gotStripeSignature = r.Header.Get(webhooks.SignatureHeaderName)
 		var payload struct {
 			APIVersion string `json:"api_version"`
 		}
@@ -312,7 +308,7 @@ func TestWebhookServiceCanUseStripeSignatureHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEvent returned error: %v", err)
 	}
-	if len(attempts) != 1 || attempts[0].RequestHeaders[webhooks.StripeSignatureHeaderName] == "" {
+	if len(attempts) != 1 || attempts[0].RequestHeaders[webhooks.SignatureHeaderName] == "" {
 		t.Fatalf("attempts = %#v, want Stripe-Signature evidence", attempts)
 	}
 	if gotStripeSignature == "" {
@@ -328,7 +324,7 @@ func TestWebhookServiceCanUseStripeSignatureHeader(t *testing.T) {
 
 func TestRelayModeDoesNotPersistRawPayloadsAndAuditsOverrides(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -412,7 +408,7 @@ func TestRelayModeDoesNotPersistRawPayloadsAndAuditsOverrides(t *testing.T) {
 
 func TestRetentionRedactsOldWebhookEvidence(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("OpenSQLite returned error: %v", err)
 	}
@@ -427,7 +423,7 @@ func TestRetentionRedactsOldWebhookEvidence(t *testing.T) {
 		APIVersion:      webhooks.DefaultAPIVersion,
 		PendingWebhooks: 1,
 		Data:            webhooks.EventData{Object: json.RawMessage(`{"id":"in_old"}`)},
-		Billtap:         webhooks.EventMetadata{Source: webhooks.SourceCheckout, Sequence: 1},
+		Emulator:        webhooks.EventMetadata{Source: webhooks.SourceCheckout, Sequence: 1},
 		RawPayload:      json.RawMessage(`{"id":"evt_old","client_secret":"secret"}`),
 		CreatedAt:       old,
 	})

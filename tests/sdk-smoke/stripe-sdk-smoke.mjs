@@ -8,24 +8,24 @@ import { fileURLToPath } from "node:url";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, "../..");
-const smokeDir = resolve(repoRoot, ".billtap/sdk-smoke");
-const binaryPath = resolve(smokeDir, "billtap");
+const smokeDir = resolve(repoRoot, ".emulator/sdk-smoke");
+const binaryPath = resolve(smokeDir, "emulator");
 const timeoutMs = Number(
-  process.env.BILLTAP_STRIPE_SDK_SMOKE_TIMEOUT_MS ?? 30_000,
+  process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_TIMEOUT_MS ?? 30_000,
 );
 const providedBaseURL = firstEnv(
-  "BILLTAP_STRIPE_SDK_SMOKE_BASE_URL",
-  "BILLTAP_BASE_URL",
+  "STRIPE_EMULATE_STRIPE_SDK_SMOKE_BASE_URL",
+  "STRIPE_EMULATE_BASE_URL",
 );
 const reportJSONPath = resolve(
   repoRoot,
-  process.env.BILLTAP_STRIPE_SDK_SMOKE_REPORT_JSON ??
-    ".billtap/sdk-smoke/stripe-sdk-smoke-report.json",
+  process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_REPORT_JSON ??
+    ".emulator/sdk-smoke/stripe-sdk-smoke-report.json",
 );
 const reportMDPath = resolve(
   repoRoot,
-  process.env.BILLTAP_STRIPE_SDK_SMOKE_REPORT_MD ??
-    ".billtap/sdk-smoke/stripe-sdk-smoke-report.md",
+  process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_REPORT_MD ??
+    ".emulator/sdk-smoke/stripe-sdk-smoke-report.md",
 );
 
 const report = {
@@ -37,7 +37,7 @@ const report = {
     name: "stripe-node",
     version: Stripe.PACKAGE_VERSION,
   },
-  billtap: {
+  emulator: {
     baseURL: null,
     startedLocal: !providedBaseURL,
   },
@@ -53,26 +53,26 @@ async function main() {
   let localServer = null;
   let receiver = null;
   try {
-    localServer = providedBaseURL ? null : await startBilltap();
+    localServer = providedBaseURL ? null : await startEmulator();
     const baseURL = providedBaseURL
       ? normalizeBaseURL(providedBaseURL)
       : localServer.baseURL;
     const runId = smokeRunId(Boolean(providedBaseURL));
-    report.billtap.baseURL = baseURL;
+    report.emulator.baseURL = baseURL;
     report.runId = runId;
 
     receiver = await startWebhookReceiver();
     report.webhookReceiver = {
       url: receiver.url,
-      providedURL: Boolean(process.env.BILLTAP_STRIPE_SDK_SMOKE_WEBHOOK_URL),
+      providedURL: Boolean(process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_WEBHOOK_URL),
       received: [],
     };
 
     const stripe = stripeClient(baseURL);
     console.log(
       providedBaseURL
-        ? `stripe SDK smoke using existing Billtap at ${baseURL}`
-        : `stripe SDK smoke started Billtap at ${baseURL}`,
+        ? `stripe SDK smoke using existing Emulator at ${baseURL}`
+        : `stripe SDK smoke started Emulator at ${baseURL}`,
     );
 
     await check("health endpoint ready", async () => {
@@ -103,13 +103,13 @@ async function main() {
   }
 }
 
-async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
+async function runStripeSDKSmoke(stripe, receiver, runId, ownsEmulatorServer) {
   const customer = await check("customer create/retrieve/list", async () => {
     const created = await stripe.customers.create({
       email: `stripe-sdk-smoke+${runId}@example.test`,
       name: "Stripe SDK Smoke Customer",
       metadata: {
-        billtap_smoke: "stripe_sdk",
+        emulator_smoke: "stripe_sdk",
         run_id: runId,
       },
     });
@@ -130,9 +130,9 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
   const product = await check("product create/retrieve/list", async () => {
     const created = await stripe.products.create({
       name: `Stripe SDK Smoke Product ${runId}`,
-      description: "Billtap official Stripe SDK smoke product",
+      description: "Emulator official Stripe SDK smoke product",
       metadata: {
-        billtap_smoke: "stripe_sdk",
+        emulator_smoke: "stripe_sdk",
         run_id: runId,
       },
     });
@@ -157,7 +157,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
         interval: "month",
       },
       metadata: {
-        billtap_smoke: "stripe_sdk",
+        emulator_smoke: "stripe_sdk",
         run_id: runId,
       },
     });
@@ -220,7 +220,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
         unit_amount: 8000,
         recurring: { interval: "month" },
         metadata: {
-          billtap_smoke: "stripe_sdk",
+          emulator_smoke: "stripe_sdk",
           run_id: runId,
           purpose: "decimal_percent_off",
         },
@@ -300,7 +300,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
         email: `stripe-sdk-smoke-tax+${runId}@example.test`,
         name: "Stripe SDK Smoke Tax Customer",
         metadata: {
-          billtap_smoke: "stripe_sdk",
+          emulator_smoke: "stripe_sdk",
           run_id: runId,
           tax_percent: "10",
         },
@@ -751,14 +751,14 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
         currency: "usd",
         unit_amount: 4900,
         recurring: { interval: "month" },
-        metadata: { billtap_smoke: "stripe_sdk", run_id: runId, tier: "lite" },
+        metadata: { emulator_smoke: "stripe_sdk", run_id: runId, tier: "lite" },
       });
       const proPrice = await stripe.prices.create({
         product: product.id,
         currency: "usd",
         unit_amount: 9900,
         recurring: { interval: "month" },
-        metadata: { billtap_smoke: "stripe_sdk", run_id: runId, tier: "pro" },
+        metadata: { emulator_smoke: "stripe_sdk", run_id: runId, tier: "pro" },
       });
       const sub = await stripe.subscriptions.create({
         customer: customer.id,
@@ -811,7 +811,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
         unit_amount: 4900,
         recurring: { interval: "month" },
         metadata: {
-          billtap_smoke: "stripe_sdk",
+          emulator_smoke: "stripe_sdk",
           run_id: runId,
           tier: "lite_tax_preview",
         },
@@ -822,7 +822,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
         unit_amount: 9900,
         recurring: { interval: "month" },
         metadata: {
-          billtap_smoke: "stripe_sdk",
+          emulator_smoke: "stripe_sdk",
           run_id: runId,
           tier: "pro_tax_preview",
         },
@@ -908,7 +908,7 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
         unit_amount: 4900,
         recurring: { interval: "month" },
         metadata: {
-          billtap_smoke: "stripe_sdk",
+          emulator_smoke: "stripe_sdk",
           run_id: runId,
           tier: "upcoming_next_period",
         },
@@ -950,21 +950,21 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
     async () => {
       const seatProduct = await stripe.products.create({
         name: "Seat Product",
-        metadata: { billtap_smoke: "stripe_sdk", run_id: runId },
+        metadata: { emulator_smoke: "stripe_sdk", run_id: runId },
       });
       const basePrice = await stripe.prices.create({
         product: seatProduct.id,
         currency: "usd",
         unit_amount: 9900,
         recurring: { interval: "month" },
-        metadata: { billtap_smoke: "stripe_sdk", run_id: runId, tier: "base" },
+        metadata: { emulator_smoke: "stripe_sdk", run_id: runId, tier: "base" },
       });
       const seatPrice = await stripe.prices.create({
         product: seatProduct.id,
         currency: "usd",
         unit_amount: 1000,
         recurring: { interval: "month" },
-        metadata: { billtap_smoke: "stripe_sdk", run_id: runId, tier: "seat" },
+        metadata: { emulator_smoke: "stripe_sdk", run_id: runId, tier: "seat" },
       });
       const txr = await stripe.taxRates.create({
         display_name: "VAT seats",
@@ -1049,8 +1049,8 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
   });
 
   const expectDelivery =
-    ownsBilltapServer ||
-    process.env.BILLTAP_STRIPE_SDK_SMOKE_EXPECT_DELIVERY === "1";
+    ownsEmulatorServer ||
+    process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_EXPECT_DELIVERY === "1";
   if (expectDelivery) {
     await check("webhook receiver observed delivery", async () => {
       await waitFor(
@@ -1068,10 +1068,10 @@ async function runStripeSDKSmoke(stripe, receiver, runId, ownsBilltapServer) {
   }
 }
 
-async function startBilltap() {
-  await run("go", ["build", "-o", binaryPath, "./cmd/billtap"]);
+async function startEmulator() {
+  await run("go", ["build", "-o", binaryPath, "./cmd/stripe-emulate"]);
   const port =
-    Number(process.env.BILLTAP_STRIPE_SDK_SMOKE_PORT) || (await findOpenPort());
+    Number(process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_PORT) || (await findOpenPort());
   const baseURL = `http://127.0.0.1:${port}`;
   const databasePath = resolve(smokeDir, `stripe-sdk-smoke-${process.pid}.db`);
   await removeDatabase(databasePath);
@@ -1080,19 +1080,19 @@ async function startBilltap() {
     cwd: repoRoot,
     env: {
       ...process.env,
-      BILLTAP_ADDR: `127.0.0.1:${port}`,
-      BILLTAP_DATABASE_URL: databasePath,
-      BILLTAP_STATIC_DIR: "dist/app",
-      BILLTAP_ENV: "test",
+      STRIPE_EMULATE_ADDR: `127.0.0.1:${port}`,
+      STRIPE_EMULATE_DATABASE_URL: databasePath,
+      STRIPE_EMULATE_STATIC_DIR: "dist/app",
+      STRIPE_EMULATE_ENV: "test",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
   child.stdout.on("data", (chunk) =>
-    process.stdout.write(`[billtap] ${chunk}`),
+    process.stdout.write(`[emulator] ${chunk}`),
   );
   child.stderr.on("data", (chunk) =>
-    process.stderr.write(`[billtap] ${chunk}`),
+    process.stderr.write(`[emulator] ${chunk}`),
   );
 
   try {
@@ -1122,9 +1122,9 @@ async function startBilltap() {
 }
 
 async function startWebhookReceiver() {
-  if (process.env.BILLTAP_STRIPE_SDK_SMOKE_WEBHOOK_URL) {
+  if (process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_WEBHOOK_URL) {
     return {
-      url: process.env.BILLTAP_STRIPE_SDK_SMOKE_WEBHOOK_URL,
+      url: process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_WEBHOOK_URL,
       received: [],
       close: async () => {},
     };
@@ -1147,7 +1147,7 @@ async function startWebhookReceiver() {
         type: parsed.type,
         body,
         signature:
-          req.headers["billtap-signature"] || req.headers["stripe-signature"],
+          req.headers["stripe-signature"],
       });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ received: true }));
@@ -1178,7 +1178,7 @@ async function startWebhookReceiver() {
 function stripeClient(baseURL) {
   const url = new URL(baseURL);
   return new Stripe(
-    process.env.BILLTAP_STRIPE_SDK_SMOKE_API_KEY ?? "sk_test_billtap_sdk_smoke",
+    process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_API_KEY ?? "sk_test_emulator_sdk_smoke",
     {
       host: url.hostname,
       port: url.port || (url.protocol === "https:" ? "443" : "80"),
@@ -1238,7 +1238,7 @@ async function waitForReady(url, child) {
     async () => {
       if (child && (child.exitCode !== null || child.signalCode !== null)) {
         throw new Error(
-          `billtap server exited before readiness with ${child.signalCode ?? child.exitCode}`,
+          `emulator server exited before readiness with ${child.signalCode ?? child.exitCode}`,
         );
       }
       try {
@@ -1314,8 +1314,8 @@ function markdownReport() {
     "",
     `- Status: ${report.status}`,
     `- SDK: ${report.sdk.name} ${report.sdk.version}`,
-    `- Billtap base URL: ${report.billtap.baseURL}`,
-    `- Started local Billtap: ${report.billtap.startedLocal}`,
+    `- Emulator base URL: ${report.emulator.baseURL}`,
+    `- Started local Emulator: ${report.emulator.startedLocal}`,
     `- Run ID: ${report.runId}`,
     "",
     "## Checks",
@@ -1393,7 +1393,7 @@ function firstEnv(...names) {
 }
 
 function smokeRunId(usesProvidedBaseURL) {
-  const explicit = process.env.BILLTAP_STRIPE_SDK_SMOKE_RUN_ID?.trim();
+  const explicit = process.env.STRIPE_EMULATE_STRIPE_SDK_SMOKE_RUN_ID?.trim();
   if (explicit) return sanitizeRunId(explicit);
   if (!usesProvidedBaseURL) return "local";
   return sanitizeRunId(`manual_${Date.now()}_${process.pid}`);

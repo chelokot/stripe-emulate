@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 // RegisterStoreCleanup registers t.Cleanup that waits for in-flight async

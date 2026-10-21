@@ -7,19 +7,15 @@ import (
 
 func TestRedactHeadersMasksSensitiveValues(t *testing.T) {
 	headers := RedactHeaders(map[string]string{
-		"Authorization":     "Bearer stripe_key_redaction_sample",
-		"Cookie":            "session=secret",
-		"Billtap-Signature": "t=1,v1=abc",
+		"Authorization":    "Bearer stripe_key_redaction_sample",
+		"Cookie":           "session=secret",
+		"Stripe-Signature": "t=1,v1=abc",
 	})
 	if headers["Authorization"] != MaskedValue || headers["Cookie"] != MaskedValue {
 		t.Fatalf("headers = %#v, want sensitive headers masked", headers)
 	}
-	if headers["Billtap-Signature"] != "t=1,v1=****" {
-		t.Fatalf("signature header = %q, want masked signature evidence", headers["Billtap-Signature"])
-	}
-	stripeHeaders := RedactHeaders(map[string]string{"Stripe-Signature": "t=1,v1=abc"})
-	if stripeHeaders["Stripe-Signature"] != "t=1,v1=****" {
-		t.Fatalf("stripe signature header = %q, want masked signature evidence", stripeHeaders["Stripe-Signature"])
+	if headers["Stripe-Signature"] != "t=1,v1=****" {
+		t.Fatalf("signature header = %q, want masked signature evidence", headers["Stripe-Signature"])
 	}
 }
 

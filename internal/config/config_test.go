@@ -21,9 +21,6 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RawPayloadStorage != RawPayloadStore || cfg.RetentionDays != 30 {
 		t.Fatalf("boundary defaults raw=%q retention=%d", cfg.RawPayloadStorage, cfg.RetentionDays)
 	}
-	if cfg.WebhookSignatureHeader != DefaultWebhookSignatureHeader {
-		t.Fatalf("WebhookSignatureHeader = %q, want %q", cfg.WebhookSignatureHeader, DefaultWebhookSignatureHeader)
-	}
 	if cfg.WebhookAPIVersion != DefaultWebhookAPIVersion {
 		t.Fatalf("WebhookAPIVersion = %q, want %q", cfg.WebhookAPIVersion, DefaultWebhookAPIVersion)
 	}
@@ -31,8 +28,8 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadConfigFileThenEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "billtap.json")
-	body := `{"addr":":9000","database_url":"file.db","static_dir":"static","public_base_path":"/file-prefix","public_base_url":"https://billtap.example.test","environment":"test","raw_payload_storage":"metadata_only","retention_days":7,"webhook_signature_header":"Billtap-Signature","webhook_api_version":"2025-03-31.basil"}`
+	path := filepath.Join(dir, "emulator.json")
+	body := `{"addr":":9000","database_url":"file.db","static_dir":"static","public_base_path":"/file-prefix","public_base_url":"https://emulator.example.test","environment":"test","raw_payload_storage":"metadata_only","retention_days":7,"webhook_api_version":"2025-03-31.basil"}`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config file: %v", err)
 	}
@@ -41,9 +38,8 @@ func TestLoadConfigFileThenEnvOverrides(t *testing.T) {
 		envAddr:                   ":9100",
 		envDatabaseURL:            ":memory:",
 		envPublicBasePath:         "generic-prefix",
-		envBilltapPublicBasePath:  "/billtap/",
+		envEmulatorPublicBasePath: "/emulator/",
 		envPublicBaseURL:          "http://127.0.0.1:18080",
-		envWebhookSignatureHeader: "Stripe-Signature",
 		envWebhookAPIVersion:      "2025-12-15.clover",
 	}
 	cfg, err := LoadWithLookup(path, func(key string) (string, bool) {
@@ -63,7 +59,7 @@ func TestLoadConfigFileThenEnvOverrides(t *testing.T) {
 	if cfg.StaticDir != "static" {
 		t.Fatalf("StaticDir = %q, want file value", cfg.StaticDir)
 	}
-	if cfg.PublicBasePath != "/billtap" {
+	if cfg.PublicBasePath != "/emulator" {
 		t.Fatalf("PublicBasePath = %q, want normalized app-specific env override", cfg.PublicBasePath)
 	}
 	if cfg.PublicBaseURL != "http://127.0.0.1:18080" {
@@ -71,9 +67,6 @@ func TestLoadConfigFileThenEnvOverrides(t *testing.T) {
 	}
 	if cfg.RawPayloadStorage != RawPayloadMetadataOnly || cfg.RetentionDays != 7 {
 		t.Fatalf("boundary config raw=%q retention=%d", cfg.RawPayloadStorage, cfg.RetentionDays)
-	}
-	if cfg.WebhookSignatureHeader != "Stripe-Signature" {
-		t.Fatalf("WebhookSignatureHeader = %q, want env override", cfg.WebhookSignatureHeader)
 	}
 	if cfg.WebhookAPIVersion != "2025-12-15.clover" {
 		t.Fatalf("WebhookAPIVersion = %q, want env override", cfg.WebhookAPIVersion)
@@ -83,7 +76,7 @@ func TestLoadConfigFileThenEnvOverrides(t *testing.T) {
 func TestLoadRejectsInvalidPublicBasePath(t *testing.T) {
 	_, err := LoadWithLookup("", func(key string) (string, bool) {
 		if key == envPublicBasePath {
-			return "https://example.test/billtap", true
+			return "https://example.test/emulator", true
 		}
 		return "", false
 	})
@@ -111,7 +104,7 @@ func TestRelayModeDisablesRawPayloadStorage(t *testing.T) {
 
 func TestLoadRejectsUnknownConfigFields(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "billtap.json")
+	path := filepath.Join(dir, "emulator.json")
 	if err := os.WriteFile(path, []byte(`{"unknown":true}`), 0o600); err != nil {
 		t.Fatalf("write config file: %v", err)
 	}

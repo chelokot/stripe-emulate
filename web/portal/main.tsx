@@ -44,7 +44,7 @@ const securePaymentFrame = `<!doctype html>
     </div>
     <script>
       const post = () => parent.postMessage({
-        type: 'billtap-card-input',
+        type: 'emulator-card-input',
         number: document.querySelector('input[name="number"]').value
       }, '*');
       document.addEventListener('input', post);
@@ -108,7 +108,7 @@ function PortalApp() {
   useEffect(() => {
     const listener = (event: MessageEvent) => {
       const data = event.data as { type?: string; number?: string };
-      if (data?.type === "billtap-card-input" && typeof data.number === "string") {
+      if (data?.type === "emulator-card-input" && typeof data.number === "string") {
         setPortalCardNumber(data.number);
       }
     };
@@ -272,7 +272,7 @@ function PortalApp() {
                     <span>Add payment method</span>
                   </label>
                   <iframe
-                    name="__privateStripeFrameBilltap"
+                    name="__privateStripeFrameEmulator"
                     title="Secure payment input frame"
                     srcDoc={securePaymentFrame}
                   />

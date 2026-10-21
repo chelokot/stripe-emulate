@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
 )
 
 // subscription proration helpers — amounts are integer cents; VAT 10% exclusive.
@@ -315,7 +315,7 @@ func TestSubscriptionUpdateCreateProrationsDefersToRenewal(t *testing.T) {
 	}
 
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal int64 `json:"subtotal"`
@@ -323,15 +323,15 @@ func TestSubscriptionUpdateCreateProrationsDefersToRenewal(t *testing.T) {
 					Tax      int64 `json:"tax"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_create_prorations/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(periodEnd.Unix(), 10)},
 	})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("renewals = %#v, want 1", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("renewals = %#v, want 1", advance.EmulatorAdvanceResult.Renewals)
 	}
 	// renewal subtotal = new plan 9900 + pending; tax on discounted base (=subtotal without coupon)
-	renewal := advance.BilltapAdvanceResult.Renewals[0].Invoice
+	renewal := advance.EmulatorAdvanceResult.Renewals[0].Invoice
 	wantSubtotal := 9900 + wantPending
 	wantTax := int64(float64(wantSubtotal)*0.10 + 0.5) // ComputeTaxRateAmounts uses Round
 	// Match ComputeTaxRateAmounts exactly:
@@ -414,7 +414,7 @@ func TestSubscriptionUpdateErrorIfIncompleteRollsBack(t *testing.T) {
 	handler := newTestHandler(t)
 	customer := postForm[billing.Customer](t, handler, "/v1/customers", url.Values{
 		"email": {"fail-upgrade@example.test"},
-		"metadata[billtap_default_invoice_outcome]": {"card_declined"},
+		"metadata[emulator_default_invoice_outcome]": {"card_declined"},
 	})
 	product := postForm[billing.Product](t, handler, "/v1/products", url.Values{"name": {"Fail Plan"}})
 	lite := postForm[billing.Price](t, handler, "/v1/prices", url.Values{
@@ -825,12 +825,12 @@ func TestSubscriptionProrationInvoiceAmountIdentity(t *testing.T) {
 			// anchor=now credit metadata: pre-discount primary key
 			if tc.params.Get("billing_cycle_anchor") == "now" {
 				if invoice.Metadata[billing.MetadataProrationCredit] == "" {
-					t.Fatal("missing billtap_proration_credit on anchor=now invoice")
+					t.Fatal("missing emulator_proration_credit on anchor=now invoice")
 				}
 				if tc.subID == "sub_id_anchor_coupon" {
 					// discounted credit differs from pre-discount
 					if invoice.Metadata[billing.MetadataProrationCreditDiscounted] == "" {
-						t.Fatalf("want billtap_proration_credit_discounted when coupon applies; meta=%v", invoice.Metadata)
+						t.Fatalf("want emulator_proration_credit_discounted when coupon applies; meta=%v", invoice.Metadata)
 					}
 				}
 			}

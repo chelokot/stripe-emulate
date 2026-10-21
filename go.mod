@@ -1,4 +1,4 @@
-module github.com/midagedev/billtap
+module github.com/chelokot/stripe-emulate
 
 go 1.25.0
 

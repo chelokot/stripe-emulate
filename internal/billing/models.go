@@ -32,11 +32,11 @@ const (
 
 const (
 	MetadataDefaultPaymentMethod        = "default_payment_method"
-	MetadataPaymentMethodsFixture       = "billtap_payment_methods_fixture"
-	MetadataPaymentMethodIDs            = "billtap_payment_method_ids"
-	MetadataPaymentIntentOutcome        = "billtap_payment_intent_outcome"
-	MetadataDefaultPaymentIntentOutcome = "billtap_default_payment_intent_outcome"
-	MetadataDefaultInvoiceOutcome       = "billtap_default_invoice_outcome"
+	MetadataPaymentMethodsFixture       = "emulator_payment_methods_fixture"
+	MetadataPaymentMethodIDs            = "emulator_payment_method_ids"
+	MetadataPaymentIntentOutcome        = "emulator_payment_intent_outcome"
+	MetadataDefaultPaymentIntentOutcome = "emulator_default_payment_intent_outcome"
+	MetadataDefaultInvoiceOutcome       = "emulator_default_invoice_outcome"
 
 	PaymentMethodsFixtureEmpty    = "empty"
 	PaymentMethodsFixtureExplicit = "explicit"

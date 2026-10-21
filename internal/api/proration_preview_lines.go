@@ -3,7 +3,7 @@ package api
 import (
 	"strconv"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 type prorationPreviewInput struct {

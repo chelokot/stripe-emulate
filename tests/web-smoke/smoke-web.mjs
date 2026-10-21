@@ -7,17 +7,17 @@ import { spawn } from "node:child_process";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, "../..");
-const smokeDir = resolve(repoRoot, ".billtap/web-smoke");
-const binaryPath = resolve(smokeDir, "billtap");
-const timeoutMs = Number(process.env.BILLTAP_WEB_SMOKE_TIMEOUT_MS ?? 30_000);
-const publicBasePath = normalizePublicBasePath(process.env.BILLTAP_PUBLIC_BASE_PATH || process.env.PUBLIC_BASE_PATH || "");
+const smokeDir = resolve(repoRoot, ".emulator/web-smoke");
+const binaryPath = resolve(smokeDir, "emulator");
+const timeoutMs = Number(process.env.STRIPE_EMULATE_WEB_SMOKE_TIMEOUT_MS ?? 30_000);
+const publicBasePath = normalizePublicBasePath(process.env.STRIPE_EMULATE_PUBLIC_BASE_PATH || process.env.PUBLIC_BASE_PATH || "");
 
 async function main() {
   await mkdir(smokeDir, { recursive: true });
   await run("npm", ["run", "build"]);
-  await run("go", ["build", "-o", binaryPath, "./cmd/billtap"]);
+  await run("go", ["build", "-o", binaryPath, "./cmd/stripe-emulate"]);
 
-  const port = Number(process.env.BILLTAP_WEB_SMOKE_PORT) || await findOpenPort();
+  const port = Number(process.env.STRIPE_EMULATE_WEB_SMOKE_PORT) || await findOpenPort();
   const baseURL = `http://127.0.0.1:${port}`;
   const databasePath = resolve(smokeDir, `web-smoke-${process.pid}.db`);
   await removeDatabase(databasePath);
@@ -26,16 +26,16 @@ async function main() {
     cwd: repoRoot,
     env: {
       ...process.env,
-      BILLTAP_ADDR: `127.0.0.1:${port}`,
-      BILLTAP_DATABASE_URL: databasePath,
-      BILLTAP_STATIC_DIR: "dist/app",
-      BILLTAP_ENV: "test",
+      STRIPE_EMULATE_ADDR: `127.0.0.1:${port}`,
+      STRIPE_EMULATE_DATABASE_URL: databasePath,
+      STRIPE_EMULATE_STATIC_DIR: "dist/app",
+      STRIPE_EMULATE_ENV: "test",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  server.stdout.on("data", (chunk) => process.stdout.write(`[billtap] ${chunk}`));
-  server.stderr.on("data", (chunk) => process.stderr.write(`[billtap] ${chunk}`));
+  server.stdout.on("data", (chunk) => process.stdout.write(`[emulator] ${chunk}`));
+  server.stderr.on("data", (chunk) => process.stderr.write(`[emulator] ${chunk}`));
 
   const stopServer = async () => {
     if (server.exitCode !== null || server.signalCode !== null) return;
@@ -303,7 +303,7 @@ async function waitForReady(url, server) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     if (server.exitCode !== null || server.signalCode !== null) {
-      throw new Error(`billtap server exited before readiness with ${server.signalCode ?? server.exitCode}`);
+      throw new Error(`emulator server exited before readiness with ${server.signalCode ?? server.exitCode}`);
     }
 
     try {

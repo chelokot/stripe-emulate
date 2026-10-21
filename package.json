@@ -1,5 +1,5 @@
 {
-  "name": "billtap",
+  "name": "stripe-emulate",
   "version": "0.0.0",
   "description": "Full-stack Stripe-style billing sandbox for local development and CI scenarios.",
   "private": true,

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
 )
 
 // upcomingPreviewFields covers next-period upcoming / create_preview assertions.
@@ -29,9 +29,9 @@ type upcomingPreviewFields struct {
 		Amount        int64 `json:"amount"`
 		TaxableAmount int64 `json:"taxable_amount"`
 	} `json:"total_taxes"`
-	BilltapPreview struct {
+	EmulatorPreview struct {
 		ProrationSkippedReason *string `json:"proration_skipped_reason"`
-	} `json:"billtap_preview"`
+	} `json:"emulator_preview"`
 	Lines struct {
 		Data []struct {
 			Amount      int64  `json:"amount"`
@@ -112,8 +112,8 @@ func TestUpcomingNextPeriodWithTaxNoParams(t *testing.T) {
 	if preview.Lines.Data[0].Period.Start != preview.PeriodStart || preview.Lines.Data[0].Period.End != preview.PeriodEnd {
 		t.Fatalf("line period = %#v, want invoice period", preview.Lines.Data[0].Period)
 	}
-	if preview.BilltapPreview.ProrationSkippedReason != nil {
-		t.Fatalf("proration_skipped_reason = %v, want null", preview.BilltapPreview.ProrationSkippedReason)
+	if preview.EmulatorPreview.ProrationSkippedReason != nil {
+		t.Fatalf("proration_skipped_reason = %v, want null", preview.EmulatorPreview.ProrationSkippedReason)
 	}
 	assertInvoiceInvariant(t, preview)
 }
@@ -355,7 +355,7 @@ func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
 	}
 
 	advance := postForm[struct {
-		BilltapAdvanceResult struct {
+		EmulatorAdvanceResult struct {
 			Renewals []struct {
 				Invoice struct {
 					Subtotal int64 `json:"subtotal"`
@@ -363,14 +363,14 @@ func TestUpcomingNextPeriodIncludesPendingProration(t *testing.T) {
 					Tax      int64 `json:"tax"`
 				} `json:"invoice"`
 			} `json:"renewals"`
-		} `json:"billtap_advance_result"`
+		} `json:"emulator_advance_result"`
 	}](t, handler, "/v1/test_helpers/test_clocks/clock_upcoming_pending/advance", url.Values{
 		"frozen_time": {strconv.FormatInt(periodEnd.Unix(), 10)},
 	})
-	if len(advance.BilltapAdvanceResult.Renewals) != 1 {
-		t.Fatalf("renewals = %#v, want 1", advance.BilltapAdvanceResult.Renewals)
+	if len(advance.EmulatorAdvanceResult.Renewals) != 1 {
+		t.Fatalf("renewals = %#v, want 1", advance.EmulatorAdvanceResult.Renewals)
 	}
-	renewal := advance.BilltapAdvanceResult.Renewals[0].Invoice
+	renewal := advance.EmulatorAdvanceResult.Renewals[0].Invoice
 	if renewal.Subtotal != preview.Subtotal || renewal.Total != preview.Total || renewal.Tax != taxVal(preview) {
 		t.Fatalf("renewal=%#v upcoming subtotal/total/tax=%d/%d/%d, want match",
 			renewal, preview.Subtotal, preview.Total, taxVal(preview))
@@ -451,8 +451,8 @@ func TestUpcomingNextPeriodNoPeriodReturnsZero(t *testing.T) {
 	if preview.Subtotal != 0 || preview.Total != 0 || preview.AmountDue != 0 {
 		t.Fatalf("amounts = %#v, want zeros", preview)
 	}
-	if preview.BilltapPreview.ProrationSkippedReason == nil || *preview.BilltapPreview.ProrationSkippedReason != "no_period" {
-		t.Fatalf("proration_skipped_reason = %v, want no_period", preview.BilltapPreview.ProrationSkippedReason)
+	if preview.EmulatorPreview.ProrationSkippedReason == nil || *preview.EmulatorPreview.ProrationSkippedReason != "no_period" {
+		t.Fatalf("proration_skipped_reason = %v, want no_period", preview.EmulatorPreview.ProrationSkippedReason)
 	}
 	if preview.BillingReason != "upcoming" {
 		t.Fatalf("billing_reason = %q, want upcoming", preview.BillingReason)

@@ -3,14 +3,14 @@ package fixtures
 import (
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 const (
-	MetadataFixtureName      = "billtap_fixture_name"
-	MetadataFixtureRunID     = "billtap_fixture_run_id"
-	MetadataFixtureNamespace = "billtap_fixture_namespace"
-	MetadataFixtureRef       = "billtap_fixture_ref"
+	MetadataFixtureName      = "emulator_fixture_name"
+	MetadataFixtureRunID     = "emulator_fixture_run_id"
+	MetadataFixtureNamespace = "emulator_fixture_namespace"
+	MetadataFixtureRef       = "emulator_fixture_ref"
 )
 
 type Pack struct {

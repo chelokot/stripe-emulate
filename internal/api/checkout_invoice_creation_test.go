@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 func TestCheckoutPaymentModeInvoiceCreation(t *testing.T) {

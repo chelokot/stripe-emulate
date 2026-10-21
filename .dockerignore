@@ -7,7 +7,7 @@ node_modules
 dist
 bin
 build
-.billtap
+.emulator
 data
 tmp
 snapshots

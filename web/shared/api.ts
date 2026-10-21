@@ -885,8 +885,8 @@ function normalizeCheckoutSession(value: unknown, fallbackId: string): CheckoutS
       readString(paymentIntent, ["id"], fixtureSession.paymentIntentId),
     paymentIntentStatus: readString(paymentIntent, ["status"], fixtureSession.paymentIntentStatus),
     returnUrl:
-      readString(root, ["billtap_return_url", "billtapReturnUrl"], "") ||
-      readString(session, ["billtap_return_url", "return_url", "returnUrl", "success_url", "successUrl"], fixtureSession.returnUrl),
+      readString(root, ["emulator_return_url", "emulatorReturnUrl"], "") ||
+      readString(session, ["emulator_return_url", "return_url", "returnUrl", "success_url", "successUrl"], fixtureSession.returnUrl),
     lineItems: normalizeLineItems(root, session),
   };
 }
@@ -1006,8 +1006,8 @@ function normalizeWebhookAttempts(value: unknown): WebhookAttempt[] {
     const status = readString(record, ["status", "delivery_status", "deliveryStatus"], "-");
     const signatureHeader =
       readString(record, ["signature", "signature_header", "signatureHeader"], "") ||
-      readHeader(requestHeaders, ["stripe-signature", "billtap-signature"]) ||
-      readHeader(responseHeaders, ["stripe-signature", "billtap-signature"]);
+      readHeader(requestHeaders, ["stripe-signature", "emulator-signature"]) ||
+      readHeader(responseHeaders, ["stripe-signature", "emulator-signature"]);
 
     return {
       id: readString(record, ["id"], "") || undefined,
@@ -1209,7 +1209,7 @@ function normalizeObjectRecord(record: Record<string, unknown>, type: DashboardO
 
   const eventType = readString(record, ["type", "event_type", "eventType"], "event");
   const request = firstRecord(record, ["request"]);
-  const billtap = firstRecord(record, ["billtap"]);
+  const emulator = firstRecord(record, ["emulator"]);
   const data = firstRecord(record, ["data"]);
   const objectPayload = asRecord(data?.object);
   const relatedObject = readObjectId(data?.object) ?? readString(objectPayload, ["id"], "");
@@ -1219,7 +1219,7 @@ function normalizeObjectRecord(record: Record<string, unknown>, type: DashboardO
       type,
       label: "Webhook event",
       title: eventType,
-      subtitle: relatedObject || readString(billtap, ["source"], "event payload"),
+      subtitle: relatedObject || readString(emulator, ["source"], "event payload"),
       status: readString(record, ["status"], "") || `${readString(record, ["pending_webhooks", "pendingWebhooks"], "0")} pending`,
       tone: toneForStatus(`${eventType} ${readString(record, ["pending_webhooks", "pendingWebhooks"], "")}`),
       createdAt: optionalTime(record, ["created_at", "createdAt", "created"]),
@@ -1227,8 +1227,8 @@ function normalizeObjectRecord(record: Record<string, unknown>, type: DashboardO
         ["Event ID", id],
         ["Event type", eventType],
         ["Related object", relatedObject],
-        ["Source", readString(billtap, ["source"], "")],
-        ["Sequence", readString(billtap, ["sequence"], "")],
+        ["Source", readString(emulator, ["source"], "")],
+        ["Sequence", readString(emulator, ["sequence"], "")],
         ["Request ID", readString(request, ["id"], "")],
         ["Idempotency key", readString(request, ["idempotency_key", "idempotencyKey"], "")],
       ]),
@@ -1305,7 +1305,7 @@ function dashboardEvidence(attempts?: WebhookAttempt[]): DashboardData["evidence
   const attempt = attempts?.find((item) => item.signatureHeader || item.errorMessage || item.responseBody);
   return {
     signatureHeader: attempt?.signatureHeader ?? "t=1778233312,v1=sandbox_mismatch",
-    idempotencyKey: attempt?.eventId ? `billtap:${attempt.eventId}:attempt_${attempt.attemptNumber ?? attempt.attempts}` : "billtap:evt_test_90:attempt_2",
+    idempotencyKey: attempt?.eventId ? `emulator:${attempt.eventId}:attempt_${attempt.attemptNumber ?? attempt.attempts}` : "emulator:evt_test_90:attempt_2",
     failureReason:
       attempt?.errorMessage ??
       attempt?.responseBody ??
@@ -1348,7 +1348,7 @@ function readHeader(headers: Record<string, unknown> | undefined, keys: string[]
 
 function redactHeaderValue(key: string, value: string): string {
   const normalized = key.toLowerCase();
-  if (normalized === "billtap-signature" || normalized === "stripe-signature") return redactSignature(value);
+  if (normalized === "emulator-signature" || normalized === "stripe-signature") return redactSignature(value);
   if (
     normalized === "authorization" ||
     normalized === "cookie" ||

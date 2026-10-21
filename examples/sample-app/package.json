@@ -1,9 +1,9 @@
 {
-  "name": "billtap-sample-app",
+  "name": "emulator-sample-app",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Tiny local app for Billtap webhook and scenario-runner smoke tests.",
+  "description": "Tiny local app for Emulator webhook and scenario-runner smoke tests.",
   "engines": {
     "node": ">=20"
   },

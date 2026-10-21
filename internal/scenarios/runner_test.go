@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/storage"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/storage"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 func TestRunnerResolvesReferencesAndCheckoutAliases(t *testing.T) {
@@ -72,7 +72,7 @@ steps:
 
 func TestRunnerInvoiceRetryMutatesBillingState(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -137,7 +137,7 @@ steps:
 
 func TestRunnerInvoiceRetryCanDeclineThenSucceedAtSameClock(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -199,7 +199,7 @@ steps:
 
 func TestRunnerInvoiceRetryWithoutInvoiceKeepsEvidenceFallback(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -232,7 +232,7 @@ steps:
 
 func TestRunnerClockAdvanceRenewsAndCancelsSubscriptions(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -325,7 +325,7 @@ steps:
 
 func TestRunnerClockAdvanceActivatesTrialAndEmitsWebhook(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -385,7 +385,7 @@ steps:
 
 func TestRunnerCheckoutCancelAndSubscriptionLifecycleActions(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -499,7 +499,7 @@ steps:
 
 func TestRunnerInvoiceFailPaymentActionMutatesOpenInvoice(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -635,7 +635,7 @@ steps:
 
 func TestRunnerWebhookReplayFailureSimulation(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -713,7 +713,7 @@ steps:
 
 func TestRunnerWebhookReplaySimulateAppFailureThenDeliver(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -794,7 +794,7 @@ steps:
 
 func TestRunnerWebhookDeliveryConvenienceActionsUseGenericReplay(t *testing.T) {
 	ctx := context.Background()
-	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(ctx, filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -935,7 +935,7 @@ func TestReportRuntimeFailureExitCode(t *testing.T) {
 
 func newTestBilling(t *testing.T) *billing.Service {
 	t.Helper()
-	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "billtap.db"))
+	store, err := storage.OpenSQLite(context.Background(), filepath.Join(t.TempDir(), "emulator.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

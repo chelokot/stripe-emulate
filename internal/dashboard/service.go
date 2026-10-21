@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 )
 
 var (
@@ -501,8 +501,8 @@ func eventTimelineItem(event webhooks.Event) TimelineItem {
 		PaymentIntentID:   related.PaymentIntentID,
 		EventID:           event.ID,
 		Data: map[string]string{
-			"source":           event.Billtap.Source,
-			"scenario_run_id":  event.Billtap.ScenarioRunID,
+			"source":           event.Emulator.Source,
+			"scenario_run_id":  event.Emulator.ScenarioRunID,
 			"pending_webhooks": fmt.Sprintf("%d", event.PendingWebhooks),
 		},
 		At: event.CreatedAt,
@@ -536,7 +536,7 @@ func eventMatchesTimeline(event webhooks.Event, q TimelineQuery) bool {
 	if q.EventType != "" && event.Type != q.EventType {
 		return false
 	}
-	if q.ScenarioRunID != "" && event.Billtap.ScenarioRunID != q.ScenarioRunID {
+	if q.ScenarioRunID != "" && event.Emulator.ScenarioRunID != q.ScenarioRunID {
 		return false
 	}
 	if q.CustomerID == "" && q.CheckoutSessionID == "" && q.SubscriptionID == "" && q.InvoiceID == "" && q.PaymentIntentID == "" {
@@ -611,7 +611,7 @@ func timelineQueryForDetail(detail ObjectDetail) TimelineQuery {
 	case billing.PaymentIntent:
 		return TimelineQuery{CustomerID: data.CustomerID, InvoiceID: data.InvoiceID, PaymentIntentID: data.ID}
 	case webhooks.Event:
-		return TimelineQuery{EventID: data.ID, EventType: data.Type, ScenarioRunID: data.Billtap.ScenarioRunID}
+		return TimelineQuery{EventID: data.ID, EventType: data.Type, ScenarioRunID: data.Emulator.ScenarioRunID}
 	default:
 		return TimelineQuery{}
 	}
@@ -685,7 +685,7 @@ func eventSummary(event webhooks.Event) ObjectSummary {
 			billing.ObjectSubscription:    related.SubscriptionID,
 			billing.ObjectInvoice:         related.InvoiceID,
 			billing.ObjectPaymentIntent:   related.PaymentIntentID,
-			"scenario_run":                event.Billtap.ScenarioRunID,
+			"scenario_run":                event.Emulator.ScenarioRunID,
 		}),
 		CreatedAt: event.CreatedAt,
 	}

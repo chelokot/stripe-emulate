@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
 )
 
 // Coupon seed: percent_off 25 with explicit ID → summary + GET key parity with POST /v1/coupons.

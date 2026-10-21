@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
-	"github.com/midagedev/billtap/internal/config"
-	"github.com/midagedev/billtap/internal/diagnostics"
-	"github.com/midagedev/billtap/internal/fixtures"
-	"github.com/midagedev/billtap/internal/scenarios"
-	"github.com/midagedev/billtap/internal/security"
-	"github.com/midagedev/billtap/internal/stripecompat"
-	"github.com/midagedev/billtap/internal/webhooks"
+	"github.com/chelokot/stripe-emulate/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/config"
+	"github.com/chelokot/stripe-emulate/internal/diagnostics"
+	"github.com/chelokot/stripe-emulate/internal/fixtures"
+	"github.com/chelokot/stripe-emulate/internal/scenarios"
+	"github.com/chelokot/stripe-emulate/internal/security"
+	"github.com/chelokot/stripe-emulate/internal/stripecompat"
+	"github.com/chelokot/stripe-emulate/internal/webhooks"
 	"gopkg.in/yaml.v3"
 )
 
@@ -239,7 +239,7 @@ func (h *Handler) writeKnownUnsupportedRoute(w http.ResponseWriter, r *http.Requ
 		})
 		return true
 	}
-	message := fmt.Sprintf("Billtap knows this Stripe API route from %s but does not implement it yet: %s %s.", route.Source, route.Method, route.Path)
+	message := fmt.Sprintf("Emulator knows this Stripe API route from %s but does not implement it yet: %s %s.", route.Source, route.Method, route.Path)
 	writeStripeError(w, http.StatusBadRequest, stripeAPIError{
 		Type:    stripeErrorInvalidReq,
 		Message: message,
@@ -724,7 +724,7 @@ func (h *Handler) handlePlatformAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, stripeAccount(billing.Account{
-		ID:               "acct_billtap_platform",
+		ID:               "acct_emulator_platform",
 		Object:           billing.ObjectAccount,
 		Type:             "standard",
 		Country:          "US",
@@ -735,7 +735,7 @@ func (h *Handler) handlePlatformAccount(w http.ResponseWriter, r *http.Request) 
 		PayoutsEnabled:   true,
 		DetailsSubmitted: true,
 		Capabilities:     map[string]string{"card_payments": "active", "transfers": "active"},
-		Metadata:         map[string]string{"billtap_account": "platform"},
+		Metadata:         map[string]string{"emulator_account": "platform"},
 		CreatedAt:        time.Unix(0, 0).UTC(),
 		UpdatedAt:        time.Unix(0, 0).UTC(),
 	}))
@@ -890,7 +890,7 @@ func (h *Handler) handleAccountExternalAccounts(w http.ResponseWriter, r *http.R
 				AccountID:     accountID,
 				Country:       p.stringDefault("country", "US"),
 				Currency:      p.stringDefault("currency", "usd"),
-				BankName:      p.stringDefault("bank_name", "Billtap Bank"),
+				BankName:      p.stringDefault("bank_name", "Emulator Bank"),
 				Last4:         last4(p.first("account_number", "external_account", "token")),
 				RoutingNumber: p.string("routing_number"),
 				Status:        "new",
@@ -1164,7 +1164,7 @@ func (h *Handler) handleAccountSessions(w http.ResponseWriter, r *http.Request) 
 		"id":            sessionID,
 		"object":        billing.ObjectAccountSession,
 		"account":       accountID,
-		"client_secret": sessionID + "_secret_billtap",
+		"client_secret": sessionID + "_secret_emulator",
 		"components":    accountSessionComponents(p),
 		"created":       time.Now().UTC().Unix(),
 		"expires_at":    expiresAt,
@@ -1743,7 +1743,7 @@ func (h *Handler) handleCheckoutSession(w http.ResponseWriter, r *http.Request) 
 	// The hosted page prefers this extension field for its "Return to app"
 	// link; success_url itself stays exactly as the caller stored it.
 	if rewritten := h.rewriteRunLocalRedirect(session.SuccessURL); rewritten != session.SuccessURL {
-		payload["billtap_return_url"] = rewritten
+		payload["emulator_return_url"] = rewritten
 	}
 	writeResult(w, payload, err)
 }
@@ -1944,7 +1944,7 @@ func (h *Handler) handleCheckoutCompletion(w http.ResponseWriter, r *http.Reques
 }
 
 // handleCheckoutSessionPromotionCode applies or removes a promotion code on an open
-// allow_promotion_codes checkout session (Billtap-hosted "Add promotion code" path).
+// allow_promotion_codes checkout session (Emulator-hosted "Add promotion code" path).
 // times_redeemed is not incremented or decremented — create-path coupon evidence stores
 // 0 and neither checkout create nor complete mutates the counter.
 func (h *Handler) handleCheckoutSessionPromotionCode(w http.ResponseWriter, r *http.Request, id string) {
@@ -2068,7 +2068,7 @@ func (h *Handler) completeCheckout(w http.ResponseWriter, r *http.Request, id st
 	// untouched session struct, while the hosted page uses this for its
 	// post-payment "Return to app" link.
 	if rewritten := h.rewriteRunLocalRedirect(session.SuccessURL); rewritten != session.SuccessURL {
-		result["billtap_return_url"] = rewritten
+		result["emulator_return_url"] = rewritten
 	}
 	if session.SubscriptionID != "" {
 		if sub, err := h.billing.GetSubscription(r.Context(), session.SubscriptionID); err == nil {
@@ -2506,9 +2506,9 @@ func (h *Handler) handleSubscriptionMigrate(w http.ResponseWriter, r *http.Reque
 		writeResult(w, nil, err)
 		return
 	}
-	metadata := map[string]string{"billtap_billing_mode": p.string("billing_mode[type]")}
+	metadata := map[string]string{"emulator_billing_mode": p.string("billing_mode[type]")}
 	if discounts := p.string("billing_mode[flexible][proration_discounts]"); discounts != "" {
-		metadata["billtap_proration_discounts"] = discounts
+		metadata["emulator_proration_discounts"] = discounts
 	}
 	updated, err := h.billing.PatchSubscription(r.Context(), subscription.ID, billing.SubscriptionPatch{
 		Metadata:        metadata,
@@ -2660,7 +2660,7 @@ func (h *Handler) handleSubscriptionItems(w http.ResponseWriter, r *http.Request
 	idx := len(subscription.Items) - 1
 	itemResp := h.stripeSubscriptionItem(r, subscription, subscription.Items[idx], idx)
 	// Item tax_rates: evidence on create response only; not used for invoice totals.
-	// Billtap bills with subscription default_tax_rates only (Stripe item tax_rates would override).
+	// Emulator bills with subscription default_tax_rates only (Stripe item tax_rates would override).
 	if p.hasDefaultTaxRatesParam("tax_rates") {
 		itemResp["tax_rates"] = h.stripeTaxRateObjects(itemTaxRates)
 	}
@@ -3043,13 +3043,13 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 			totalTaxAmounts = []map[string]any{{
 				"amount":            taxAmt,
 				"inclusive":         false,
-				"tax_rate":          "txr_billtap_simulated",
+				"tax_rate":          "txr_emulator_simulated",
 				"taxability_reason": "standard_rated",
 			}}
 			totalTaxes = []map[string]any{{
 				"amount":            taxAmt,
 				"tax_behavior":      "exclusive",
-				"tax_rate_details":  map[string]any{"tax_rate": "txr_billtap_simulated"},
+				"tax_rate_details":  map[string]any{"tax_rate": "txr_emulator_simulated"},
 				"taxability_reason": "standard_rated",
 				"taxable_amount":    totalExcludingTax,
 				"type":              "tax_rate_details",
@@ -3131,7 +3131,7 @@ func (h *Handler) invoicePreview(ctx context.Context, path string, p params) (ma
 		"total_taxes":                      totalTaxes,
 		"transfer_data":                    nil,
 		"webhooks_delivered_at":            nil,
-		"billtap_preview": map[string]any{
+		"emulator_preview": map[string]any{
 			"proration_behavior":       behavior,
 			"proration_date":           createdAt.Unix(),
 			"billing_cycle_anchor":     billingCycleAnchor.Unix(),
@@ -3304,13 +3304,13 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 			totalTaxAmounts = []map[string]any{{
 				"amount":            taxAmt,
 				"inclusive":         false,
-				"tax_rate":          "txr_billtap_simulated",
+				"tax_rate":          "txr_emulator_simulated",
 				"taxability_reason": "standard_rated",
 			}}
 			totalTaxes = []map[string]any{{
 				"amount":            taxAmt,
 				"tax_behavior":      "exclusive",
-				"tax_rate_details":  map[string]any{"tax_rate": "txr_billtap_simulated"},
+				"tax_rate_details":  map[string]any{"tax_rate": "txr_emulator_simulated"},
 				"taxability_reason": "standard_rated",
 				"taxable_amount":    totalExcludingTax,
 				"type":              "tax_rate_details",
@@ -3392,7 +3392,7 @@ func (h *Handler) invoicePreviewNextPeriod(ctx context.Context, path string, p p
 		"total_taxes":                      totalTaxes,
 		"transfer_data":                    nil,
 		"webhooks_delivered_at":            nil,
-		"billtap_preview": map[string]any{
+		"emulator_preview": map[string]any{
 			"proration_behavior":       behavior,
 			"proration_date":           createdAt.Unix(),
 			"billing_cycle_anchor":     billingCycleAnchor.Unix(),
@@ -3708,7 +3708,7 @@ func (h *Handler) handleInvoiceItems(w http.ResponseWriter, r *http.Request) {
 			InvoiceID:  r.URL.Query().Get("invoice"),
 		})
 		// Stripe lists invoice items (one-offs, prorations), not the regular
-		// subscription lines Billtap stores in the same table.
+		// subscription lines Emulator stores in the same table.
 		listed := items[:0]
 		for _, item := range items {
 			if item.SubscriptionItemID == "" || item.Proration {
@@ -3825,7 +3825,7 @@ func (h *Handler) handleInvoice(w http.ResponseWriter, r *http.Request) {
 		}
 		forgive := p.boolDefault("forgive", false)
 		result, err := h.billing.PayInvoice(r.Context(), id, billing.InvoicePaymentOptions{
-			Outcome:         p.first("outcome", "billtap_outcome"),
+			Outcome:         p.first("outcome", "emulator_outcome"),
 			PaymentMethodID: paymentMethodID,
 			PaidOutOfBand:   p.boolDefault("paid_out_of_band", false) || forgive,
 		})
@@ -4376,7 +4376,7 @@ func (h *Handler) handlePaymentIntent(w http.ResponseWriter, r *http.Request) {
 				if metadata == nil {
 					metadata = map[string]string{}
 				}
-				metadata["billtap_description"] = description
+				metadata["emulator_description"] = description
 			}
 			intent, err := h.billing.UpdatePaymentIntentDetails(r.Context(), id, metadata)
 			writeResult(w, stripePaymentIntent(intent), err)
@@ -4637,7 +4637,7 @@ func (h *Handler) handleTestClock(w http.ResponseWriter, r *http.Request) {
 	}
 	response := stripeTestClock(clock)
 	if err == nil {
-		response["billtap_advance_result"] = advance
+		response["emulator_advance_result"] = advance
 	}
 	writeResult(w, response, err)
 }
@@ -5662,7 +5662,7 @@ func (h *Handler) handleFixtureAssert(w http.ResponseWriter, r *http.Request) {
 func readSafeFixtureBody(r *http.Request) ([]byte, error) {
 	body := mustReadRequestBody(r)
 	if security.ContainsCardDataAny(decodeLooseBody(body, r.Header.Get("Content-Type"))) {
-		return nil, fmt.Errorf("%w: real card data is not accepted by Billtap", webhooks.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: real card data is not accepted by Emulator", webhooks.ErrInvalidInput)
 	}
 	return body, nil
 }
@@ -5699,7 +5699,7 @@ func applyRequestRunID(r *http.Request, pack fixtures.Pack) fixtures.Pack {
 }
 
 func requestRunID(r *http.Request) string {
-	return strings.TrimSpace(r.Header.Get("X-Billtap-Run-Id"))
+	return strings.TrimSpace(r.Header.Get("X-Emulator-Run-Id"))
 }
 
 func debugBundleTimelineFilter(p params) billing.TimelineFilter {
@@ -6409,7 +6409,7 @@ func parseParams(r *http.Request) (params, error) {
 			return params{}, err
 		}
 		if security.ContainsCardDataAny(raw) {
-			return params{}, fmt.Errorf("%w: real card data is not accepted by Billtap", webhooks.ErrInvalidInput)
+			return params{}, fmt.Errorf("%w: real card data is not accepted by Emulator", webhooks.ErrInvalidInput)
 		}
 		values := map[string]string{}
 		for key, value := range raw {
@@ -6435,7 +6435,7 @@ func parseParams(r *http.Request) (params, error) {
 			}
 		}
 		if security.ContainsCardData(values) {
-			return params{}, fmt.Errorf("%w: real card data is not accepted by Billtap", webhooks.ErrInvalidInput)
+			return params{}, fmt.Errorf("%w: real card data is not accepted by Emulator", webhooks.ErrInvalidInput)
 		}
 		return params{values: values}, nil
 	}
@@ -6444,7 +6444,7 @@ func parseParams(r *http.Request) (params, error) {
 	}
 	values := firstValues(r.Form)
 	if security.ContainsCardData(values) {
-		return params{}, fmt.Errorf("%w: real card data is not accepted by Billtap", webhooks.ErrInvalidInput)
+		return params{}, fmt.Errorf("%w: real card data is not accepted by Emulator", webhooks.ErrInvalidInput)
 	}
 	return params{values: values}, nil
 }
@@ -6496,7 +6496,7 @@ func parseParamsAllowingDeleteBody(r *http.Request) (params, error) {
 		p.values[key] = vals
 	}
 	if security.ContainsCardData(p.values) {
-		return params{}, fmt.Errorf("%w: real card data is not accepted by Billtap", webhooks.ErrInvalidInput)
+		return params{}, fmt.Errorf("%w: real card data is not accepted by Emulator", webhooks.ErrInvalidInput)
 	}
 	return p, nil
 }
@@ -6728,20 +6728,20 @@ func paymentIntentMetadata(p params) map[string]string {
 	metadata := p.metadata()
 	outcome := firstNonEmptyString(
 		metadataValue(metadata, billing.MetadataPaymentIntentOutcome),
-		p.first("billtap_outcome", "deferred_outcome", "payment_intent_outcome"),
-		metadataValue(metadata, "billtap_outcome"),
+		p.first("emulator_outcome", "deferred_outcome", "payment_intent_outcome"),
+		metadataValue(metadata, "emulator_outcome"),
 	)
-	if actionType := p.first("billtap_next_action_type", "next_action_type"); actionType != "" {
+	if actionType := p.first("emulator_next_action_type", "next_action_type"); actionType != "" {
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
-		metadata["billtap_next_action_type"] = actionType
+		metadata["emulator_next_action_type"] = actionType
 	}
 	if returnURL := p.string("return_url"); returnURL != "" {
 		if metadata == nil {
 			metadata = map[string]string{}
 		}
-		metadata["billtap_return_url"] = returnURL
+		metadata["emulator_return_url"] = returnURL
 	}
 	if outcome == "" {
 		return metadata
@@ -7594,7 +7594,7 @@ func stripeExternalAccount(resource billing.ConnectResource) map[string]any {
 		"account":              resource.AccountID,
 		"account_holder_name":  emptyToNil(resource.Data["account_holder_name"]),
 		"account_holder_type":  emptyToNil(resource.Data["account_holder_type"]),
-		"bank_name":            stringDefault(resource.BankName, "Billtap Bank"),
+		"bank_name":            stringDefault(resource.BankName, "Emulator Bank"),
 		"country":              strings.ToUpper(stringDefault(resource.Country, "US")),
 		"currency":             strings.ToLower(stringDefault(resource.Currency, "usd")),
 		"default_for_currency": resource.Data["default_for_currency"] == "true",
@@ -7680,7 +7680,7 @@ func stripeApplicationFee(resource billing.ConnectResource, refunds []billing.Co
 		"account":                 emptyToNil(resource.AccountID),
 		"amount":                  resource.Amount,
 		"amount_refunded":         amountRefunded,
-		"application":             "ca_billtap",
+		"application":             "ca_emulator",
 		"balance_transaction":     "txn_" + resource.ID,
 		"charge":                  emptyToNil(resource.Data["charge"]),
 		"created":                 unix(resource.CreatedAt),
@@ -8144,7 +8144,7 @@ func stripeInvoiceWithPaymentIntentAndTaxRates(invoice billing.Invoice, intent *
 		confirmationSecret = map[string]any{
 			"object":        "confirmation_secret",
 			"type":          "payment_intent",
-			"client_secret": invoice.PaymentIntentID + "_secret_billtap",
+			"client_secret": invoice.PaymentIntentID + "_secret_emulator",
 		}
 	}
 	taxValue := any(nil)
@@ -8173,13 +8173,13 @@ func stripeInvoiceWithPaymentIntentAndTaxRates(invoice billing.Invoice, intent *
 		totalTaxAmounts = []map[string]any{{
 			"amount":            invoice.Tax,
 			"inclusive":         false,
-			"tax_rate":          "txr_billtap_simulated",
+			"tax_rate":          "txr_emulator_simulated",
 			"taxability_reason": "standard_rated",
 		}}
 		totalTaxes = []map[string]any{{
 			"amount":            invoice.Tax,
 			"tax_behavior":      "exclusive",
-			"tax_rate_details":  map[string]any{"tax_rate": "txr_billtap_simulated"},
+			"tax_rate_details":  map[string]any{"tax_rate": "txr_emulator_simulated"},
 			"taxability_reason": "standard_rated",
 			"taxable_amount":    totalExcludingTax,
 			"type":              "tax_rate_details",
@@ -8607,7 +8607,7 @@ func stripePaymentIntent(intent billing.PaymentIntent) map[string]any {
 	captureMethod := stringDefault(intent.CaptureMethod, "automatic")
 	// Stripe PaymentIntent always includes description / receipt_email /
 	// setup_future_usage as string|null (PaymentIntents.d.ts). Checkout payment
-	// mode stores the values under billtap_* metadata keys to avoid colliding
+	// mode stores the values under emulator_* metadata keys to avoid colliding
 	// with caller-supplied metadata[description] etc.
 	return map[string]any{
 		"id":                 intent.ID,
@@ -8620,15 +8620,15 @@ func stripePaymentIntent(intent billing.PaymentIntent) map[string]any {
 		"currency":           intent.Currency,
 		"status":             intent.Status,
 		"capture_method":     captureMethod,
-		"description":        emptyToNil(intent.Metadata["billtap_description"]),
-		"receipt_email":      emptyToNil(intent.Metadata["billtap_receipt_email"]),
-		"setup_future_usage": emptyToNil(intent.Metadata["billtap_setup_future_usage"]),
+		"description":        emptyToNil(intent.Metadata["emulator_description"]),
+		"receipt_email":      emptyToNil(intent.Metadata["emulator_receipt_email"]),
+		"setup_future_usage": emptyToNil(intent.Metadata["emulator_setup_future_usage"]),
 		"payment_method":     emptyToNil(intent.PaymentMethodID),
 		"latest_charge":      emptyToNil(paymentIntentChargeID(intent)),
 		"metadata":           nonNilMap(intent.Metadata),
 		"last_payment_error": paymentIntentError(intent),
 		"next_action":        paymentIntentNextAction(intent),
-		"client_secret":      intent.ID + "_secret_billtap",
+		"client_secret":      intent.ID + "_secret_emulator",
 		"created":            unix(intent.CreatedAt),
 		"created_at":         intent.CreatedAt,
 		"livemode":           false,
@@ -8639,8 +8639,8 @@ func paymentIntentNextAction(intent billing.PaymentIntent) any {
 	if intent.Status != "requires_action" {
 		return nil
 	}
-	if strings.TrimSpace(intent.Metadata["billtap_next_action_type"]) == "redirect_to_url" {
-		returnURL := firstNonEmptyString(intent.Metadata["billtap_return_url"], "http://127.0.0.1:18080/payment_intents/"+intent.ID+"/return")
+	if strings.TrimSpace(intent.Metadata["emulator_next_action_type"]) == "redirect_to_url" {
+		returnURL := firstNonEmptyString(intent.Metadata["emulator_return_url"], "http://127.0.0.1:18080/payment_intents/"+intent.ID+"/return")
 		return map[string]any{
 			"type": "redirect_to_url",
 			"redirect_to_url": map[string]any{
@@ -8652,13 +8652,13 @@ func paymentIntentNextAction(intent billing.PaymentIntent) any {
 	return map[string]any{
 		"type": "use_stripe_sdk",
 		"use_stripe_sdk": map[string]any{
-			"type":                    "three_d_secure_redirect",
-			"stripe_js":               "https://js.stripe.com/v3/",
-			"source":                  intent.PaymentMethodID,
-			"server_transaction_id":   "billtap_" + sanitizeID(intent.ID),
-			"hosted_voucher_url":      "",
-			"billtap_completion_url":  "/api/payment_intents/" + intent.ID + "/complete_action",
-			"billtap_abandonment_url": "/api/payment_intents/" + intent.ID + "/cancel_action",
+			"type":                     "three_d_secure_redirect",
+			"stripe_js":                "https://js.stripe.com/v3/",
+			"source":                   intent.PaymentMethodID,
+			"server_transaction_id":    "emulator_" + sanitizeID(intent.ID),
+			"hosted_voucher_url":       "",
+			"emulator_completion_url":  "/api/payment_intents/" + intent.ID + "/complete_action",
+			"emulator_abandonment_url": "/api/payment_intents/" + intent.ID + "/cancel_action",
 		},
 	}
 }
@@ -8672,7 +8672,7 @@ func stripeSetupIntent(intent billing.SetupIntent) map[string]any {
 		"usage":            stringDefault(intent.Usage, "off_session"),
 		"payment_method":   emptyToNil(intent.PaymentMethodID),
 		"last_setup_error": setupIntentError(intent),
-		"client_secret":    intent.ID + "_secret_billtap",
+		"client_secret":    intent.ID + "_secret_emulator",
 		"created":          unix(intent.CreatedAt),
 		"created_at":       intent.CreatedAt,
 		"livemode":         false,
@@ -8709,7 +8709,7 @@ func stripeRefund(refund billing.Refund) map[string]any {
 	}
 }
 
-// paymentIntentChargeID is the charge a PaymentIntent produced; Billtap names it
+// paymentIntentChargeID is the charge a PaymentIntent produced; Emulator names it
 // after the PI (as refunds already do), so no charges table is needed.
 func paymentIntentChargeID(intent billing.PaymentIntent) string {
 	switch intent.Status {
@@ -8720,7 +8720,7 @@ func paymentIntentChargeID(intent billing.PaymentIntent) string {
 }
 
 // handleCharge serves GET /v1/charges/{id} for PaymentIntent charges, with the
-// balance_transaction always expanded (Billtap pre-expands instead of honoring expand[]).
+// balance_transaction always expanded (Emulator pre-expands instead of honoring expand[]).
 func (h *Handler) handleCharge(w http.ResponseWriter, r *http.Request, chargeID string) {
 	if r.Method != http.MethodGet {
 		h.methodNotAllowed(w, r, "GET")
@@ -9468,18 +9468,18 @@ func optionalFinalizedAt(invoice billing.Invoice) any {
 	if invoice.Status == "draft" {
 		return nil
 	}
-	if value := metadataUnix(invoice.Metadata["billtap_finalized_at"]); value != nil {
+	if value := metadataUnix(invoice.Metadata["emulator_finalized_at"]); value != nil {
 		return value
 	}
 	return unix(invoice.CreatedAt)
 }
 
 func optionalVoidedAt(invoice billing.Invoice) any {
-	return metadataUnix(invoice.Metadata["billtap_voided_at"])
+	return metadataUnix(invoice.Metadata["emulator_voided_at"])
 }
 
 func optionalMarkedUncollectibleAt(invoice billing.Invoice) any {
-	return metadataUnix(invoice.Metadata["billtap_marked_uncollectible_at"])
+	return metadataUnix(invoice.Metadata["emulator_marked_uncollectible_at"])
 }
 
 func paymentIntentError(intent billing.PaymentIntent) any {
@@ -9562,7 +9562,7 @@ func sanitizeID(value string) string {
 		}
 	}
 	if b.Len() == 0 {
-		return "billtap"
+		return "emulator"
 	}
 	return b.String()
 }
@@ -9717,7 +9717,7 @@ func (h *Handler) runConfiguredPublicBase() string {
 
 // absoluteURL turns a server-relative path into the URL a browser must use.
 // The base resolves in order: the run's configured public base, an explicit
-// X-Billtap-Public-Base-Url override, the reverse-proxy forwarded origin for
+// X-Emulator-Public-Base-Url override, the reverse-proxy forwarded origin for
 // run-scoped requests, and finally the global public base or request host.
 func (h *Handler) absoluteURL(r *http.Request, path string) string {
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
@@ -9790,7 +9790,7 @@ func requestForwardedPrefix(r *http.Request) string {
 }
 
 func requestRunPrefix(r *http.Request) string {
-	raw := strings.TrimSpace(strings.Split(r.Header.Get("X-Billtap-Run-Prefix"), ",")[0])
+	raw := strings.TrimSpace(strings.Split(r.Header.Get("X-Emulator-Run-Prefix"), ",")[0])
 	if raw == "" || raw == "/" || strings.Contains(raw, "://") || strings.ContainsAny(raw, "?#") {
 		return ""
 	}
@@ -9802,11 +9802,11 @@ func requestRunPrefix(r *http.Request) string {
 
 const (
 	// runIDHeader carries the canonical run resolved by the server dispatcher.
-	runIDHeader = "X-Billtap-Run-Id"
+	runIDHeader = "X-Emulator-Run-Id"
 
 	// publicBaseURLHeader lets a single request pin the public base of the
 	// absolute URLs in its response without touching the run config.
-	publicBaseURLHeader = "X-Billtap-Public-Base-Url"
+	publicBaseURLHeader = "X-Emulator-Public-Base-Url"
 )
 
 func requestPublicBaseOverride(r *http.Request) string {
@@ -9850,7 +9850,7 @@ func (h *Handler) emitCheckoutWebhooks(r *http.Request, result map[string]any) [
 			Type:           item.eventType,
 			ObjectPayload:  item.payload,
 			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: "billtap:" + item.eventType + ":" + item.objectID,
+			IdempotencyKey: "emulator:" + item.eventType + ":" + item.objectID,
 			Source:         webhooks.SourceCheckout,
 			Sequence:       sequence + int64(idx),
 			AsyncDelivery:  true,
@@ -9875,7 +9875,7 @@ func (h *Handler) emitSubscriptionWebhook(r *http.Request, eventType string, sub
 		Type:           eventType,
 		ObjectPayload:  raw,
 		RequestID:      "req_" + subscription.ID,
-		IdempotencyKey: fmt.Sprintf("billtap:%s:%s:%d", eventType, subscription.ID, sequence),
+		IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", eventType, subscription.ID, sequence),
 		Source:         source,
 		Sequence:       sequence,
 		AsyncDelivery:  true,
@@ -9899,7 +9899,7 @@ func (h *Handler) emitPaymentIntentWebhook(r *http.Request, eventType string, in
 		Type:           eventType,
 		ObjectPayload:  raw,
 		RequestID:      "req_" + intent.ID,
-		IdempotencyKey: fmt.Sprintf("billtap:%s:%s:%d", eventType, intent.ID, sequence),
+		IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", eventType, intent.ID, sequence),
 		Source:         webhooks.SourceAPI,
 		Sequence:       sequence,
 		AsyncDelivery:  true,
@@ -9921,7 +9921,7 @@ func (h *Handler) emitInvoicePaymentWebhooks(r *http.Request, result billing.Inv
 			Type:           item.eventType,
 			ObjectPayload:  item.payload,
 			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: fmt.Sprintf("billtap:%s:%s:%d", item.eventType, item.objectID, sequence),
+			IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", item.eventType, item.objectID, sequence),
 			Source:         source,
 			Sequence:       sequence + int64(idx),
 			AsyncDelivery:  true,
@@ -9944,7 +9944,7 @@ func (h *Handler) emitRenewalWebhooks(r *http.Request, result billing.InvoicePay
 			Type:           item.eventType,
 			ObjectPayload:  item.payload,
 			RequestID:      "req_" + item.objectID,
-			IdempotencyKey: fmt.Sprintf("billtap:%s:%s:%d", item.eventType, item.objectID, sequence),
+			IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", item.eventType, item.objectID, sequence),
 			Source:         source,
 			Sequence:       sequence + int64(idx),
 			AsyncDelivery:  true,
@@ -10102,7 +10102,7 @@ func (h *Handler) emitGenericWebhook(r *http.Request, eventType string, objectID
 		Type:           eventType,
 		ObjectPayload:  raw,
 		RequestID:      "req_" + objectID,
-		IdempotencyKey: fmt.Sprintf("billtap:%s:%s:%d", eventType, objectID, sequence),
+		IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", eventType, objectID, sequence),
 		Source:         source,
 		Sequence:       sequence,
 		AsyncDelivery:  true,
@@ -10126,7 +10126,7 @@ func (h *Handler) emitSetupIntentWebhook(r *http.Request, eventType string, inte
 		Type:           eventType,
 		ObjectPayload:  raw,
 		RequestID:      "req_" + intent.ID,
-		IdempotencyKey: fmt.Sprintf("billtap:%s:%s:%d", eventType, intent.ID, sequence),
+		IdempotencyKey: fmt.Sprintf("emulator:%s:%s:%d", eventType, intent.ID, sequence),
 		Source:         webhooks.SourceAPI,
 		Sequence:       sequence,
 		AsyncDelivery:  true,

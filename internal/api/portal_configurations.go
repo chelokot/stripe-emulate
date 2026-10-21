@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midagedev/billtap/internal/billing"
+	"github.com/chelokot/stripe-emulate/internal/billing"
 )
 
 // defaultPortalFeatures mirrors the Stripe default portal feature set. The
