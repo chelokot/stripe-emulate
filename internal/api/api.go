@@ -1884,21 +1884,30 @@ func (h *Handler) handleBillingPortalSessions(w http.ResponseWriter, r *http.Req
 		writeResult(w, nil, err)
 		return
 	}
-	sessionID := "bps_" + sanitizeID(customerID+"_"+time.Now().UTC().Format(time.RFC3339Nano))
+	configurationID := p.string("configuration")
+	if configurationID == "" {
+		configurationID, err = h.defaultPortalConfigurationID()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	sessionID := "bps_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
 	returnURL := billingPortalSessionReturnURL(p)
 	flowType := billingPortalSessionFlowType(p)
 	session := map[string]any{
-		"id":            sessionID,
-		"object":        "billing_portal.session",
-		"customer":      customerID,
-		"configuration": emptyToNil(p.string("configuration")),
-		"flow":          nil,
-		"locale":        emptyToNil(p.string("locale")),
-		"on_behalf_of":  emptyToNil(p.string("on_behalf_of")),
-		"return_url":    returnURL,
-		"url":           h.absoluteURL(r, billingPortalSessionPath(customerID, sessionID, h.rewriteRunLocalRedirect(returnURL), flowType, billingPortalSessionSubscriptionID(p))),
-		"created":       time.Now().UTC().Unix(),
-		"livemode":      false,
+		"id":               sessionID,
+		"object":           "billing_portal.session",
+		"customer":         customerID,
+		"configuration":    configurationID,
+		"customer_account": nil,
+		"flow":             nil,
+		"locale":           emptyToNil(p.string("locale")),
+		"on_behalf_of":     emptyToNil(p.string("on_behalf_of")),
+		"return_url":       returnURL,
+		"url":              h.absoluteURL(r, billingPortalSessionPath(customerID, sessionID, h.rewriteRunLocalRedirect(returnURL), flowType, billingPortalSessionSubscriptionID(p))),
+		"created":          time.Now().UTC().Unix(),
+		"livemode":         false,
 	}
 	if flowType != "" {
 		session["flow"] = map[string]any{"type": flowType}

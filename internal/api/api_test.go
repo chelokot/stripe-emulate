@@ -2970,7 +2970,7 @@ func TestSupportedEndpointRequestValidation(t *testing.T) {
 		if status != http.StatusBadRequest {
 			t.Fatalf("status=%d body=%s, want 400", status, body)
 		}
-		if errBody.Error.Code != "parameter_missing" || errBody.Error.Param != "customer" {
+		if errBody.Error.Code != "parameter_missing" || errBody.Error.Message != "Must provide customer or customer_account." {
 			t.Fatalf("error=%#v, want missing customer", errBody.Error)
 		}
 	})
@@ -3567,7 +3567,7 @@ func TestBillingPortalSessionStripeLikeShapeAndValidation(t *testing.T) {
 		{
 			name:       "missing customer",
 			values:     url.Values{"return_url": {"https://app.example.test/account"}},
-			wantParam:  "customer",
+			wantParam:  "",
 			wantCode:   "parameter_missing",
 			wantStatus: http.StatusBadRequest,
 		},

@@ -1580,7 +1580,6 @@ func validateBillingPortalSessionCreate(p params) error {
 	if err := p.validate(paramSpec{
 		Allowed:      []string{"customer", "customer_id", "customer_account", "return_url", "configuration", "locale", "on_behalf_of"},
 		AllowedRegex: []*regexp.Regexp{portalFlowDataParamRE},
-		RequiredAny:  [][]string{{"customer", "customer_id"}},
 		EnumParams: map[string][]string{
 			"flow_data[type]":                   {"payment_method_update", "subscription_cancel", "subscription_update", "subscription_update_confirm"},
 			"flow_data[after_completion][type]": {"hosted_confirmation", "portal_homepage", "redirect"},
@@ -1588,6 +1587,9 @@ func validateBillingPortalSessionCreate(p params) error {
 		},
 	}); err != nil {
 		return err
+	}
+	if !p.hasAny("customer", "customer_id", "customer_account") {
+		return &validationError{Code: stripeCodeParamMissing, Message: "Must provide customer or customer_account."}
 	}
 	flowDataPresent := false
 	for key := range p.values {

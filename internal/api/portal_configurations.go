@@ -101,25 +101,8 @@ func (h *Handler) handleBillingPortalConfigurations(w http.ResponseWriter, r *ht
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		now := time.Now().UTC()
-		id := "bpc_" + strconv.FormatInt(now.UnixNano(), 36)
 		h.local.mu.Lock()
-		isDefault := len(h.local.portalConfigurations) == 0
-		configuration := map[string]any{
-			"id":                 id,
-			"object":             "billing_portal.configuration",
-			"active":             true,
-			"is_default":         isDefault,
-			"business_profile":   portalBusinessProfileFromParams(p, nil),
-			"default_return_url": emptyToNil(p.string("default_return_url")),
-			"features":           portalFeaturesFromParams(p, nil),
-			"login_page":         portalLoginPageFromParams(p, nil),
-			"metadata":           nonNilMap(p.metadata()),
-			"created":            now.Unix(),
-			"updated":            now.Unix(),
-			"livemode":           false,
-		}
-		err = h.local.saveLocked(kindPortalConfiguration, id, configuration)
+		configuration, err := h.createPortalConfigurationLocked(p)
 		h.local.mu.Unlock()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
@@ -139,6 +122,38 @@ func (h *Handler) handleBillingPortalConfigurations(w http.ResponseWriter, r *ht
 	default:
 		h.methodNotAllowed(w, r, "GET, POST")
 	}
+}
+
+func (h *Handler) createPortalConfigurationLocked(p params) (map[string]any, error) {
+	now := time.Now().UTC()
+	id := "bpc_" + strconv.FormatInt(now.UnixNano(), 36)
+	configuration := map[string]any{
+		"id":                 id,
+		"object":             "billing_portal.configuration",
+		"active":             true,
+		"is_default":         len(h.local.portalConfigurations) == 0,
+		"business_profile":   portalBusinessProfileFromParams(p, nil),
+		"default_return_url": emptyToNil(p.string("default_return_url")),
+		"features":           portalFeaturesFromParams(p, nil),
+		"login_page":         portalLoginPageFromParams(p, nil),
+		"metadata":           nonNilMap(p.metadata()),
+		"created":            now.Unix(),
+		"updated":            now.Unix(),
+		"livemode":           false,
+	}
+	return configuration, h.local.saveLocked(kindPortalConfiguration, id, configuration)
+}
+
+func (h *Handler) defaultPortalConfigurationID() (string, error) {
+	h.local.mu.Lock()
+	defer h.local.mu.Unlock()
+	for id, configuration := range h.local.portalConfigurations {
+		if configuration["is_default"] == true {
+			return id, nil
+		}
+	}
+	configuration, err := h.createPortalConfigurationLocked(params{values: map[string]string{}})
+	return configuration["id"].(string), err
 }
 
 func (h *Handler) handleBillingPortalConfiguration(w http.ResponseWriter, r *http.Request) {
